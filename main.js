@@ -1286,70 +1286,11 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
     };
     this.plugin = plugin;
   }
-  /**
-   * Obsidian 1.13+: declarative definitions (settings search + auto-render).
-   * Custom UI is painted via `render`; controls still save through our own handlers.
-   */
-  getSettingDefinitions() {
-    return [
-      {
-        name: "Beautiful PDF",
-        desc: "Styled PDF export: profiles, page layout, and Markdown element styles.",
-        aliases: [
-          "document profiles",
-          "profile name",
-          "page size",
-          "margins",
-          "page numbers",
-          "header",
-          "footer",
-          "line height",
-          "print background",
-          "markdown elements",
-          "heading",
-          "body",
-          "blockquote",
-          "list",
-          "task list",
-          "code",
-          "table",
-          "callout",
-          "image",
-          "link",
-          "footnote",
-          "embed",
-          "box style",
-          "font",
-          "page break",
-          "Report",
-          "Everyday",
-          "Proposal"
-        ],
-        render: (setting) => {
-          const el2 = setting.settingEl;
-          el2.empty();
-          el2.addClass("beautiful-pdf-settings");
-          el2.addClass("beautiful-pdf-settings-root");
-          this.renderAll(el2);
-        }
-      }
-    ];
-  }
-  /** Obsidian &lt; 1.13 fallback when getSettingDefinitions is unavailable. */
   display() {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass("beautiful-pdf-settings");
     this.renderAll(containerEl);
-  }
-  /** Re-render after profile/page changes (1.13 uses update(), older uses display()). */
-  refreshSettings() {
-    const tab = this;
-    if (typeof tab.update === "function") {
-      tab.update();
-    } else {
-      this.display();
-    }
   }
   renderAll(containerEl) {
     this.renderProfiles(containerEl);
@@ -1378,7 +1319,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
         void (async () => {
           this.plugin.settings.activeProfileId = p.id;
           await this.plugin.saveSettings();
-          this.refreshSettings();
+          this.display();
         })();
       };
     }
@@ -1400,7 +1341,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
       this.plugin.settings.profiles.push(profile2);
       this.plugin.settings.activeProfileId = profile2.id;
       await this.plugin.saveSettings();
-      this.refreshSettings();
+      this.display();
     });
     mkAction("Duplicate", "", async () => {
       const active = getActiveProfile(this.plugin.settings);
@@ -1408,7 +1349,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
       this.plugin.settings.profiles.push(copy);
       this.plugin.settings.activeProfileId = copy.id;
       await this.plugin.saveSettings();
-      this.refreshSettings();
+      this.display();
     });
     mkAction("Delete", "is-danger", async () => {
       if (this.plugin.settings.profiles.length <= 1)
@@ -1419,7 +1360,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
       );
       this.plugin.settings.activeProfileId = this.plugin.settings.profiles[0].id;
       await this.plugin.saveSettings();
-      this.refreshSettings();
+      this.display();
     });
     section.createEl("hr", { cls: "beautiful-pdf-divider" });
     const profile = getActiveProfile(this.plugin.settings);
@@ -1468,7 +1409,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
             void (async () => {
               page.pageSize = v;
               await this.plugin.saveSettings();
-              this.refreshSettings();
+              this.display();
             })();
           });
         });
@@ -1534,7 +1475,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
                 void (async () => {
                   page.pageNumber = v;
                   await this.plugin.saveSettings();
-                  this.refreshSettings();
+                  this.display();
                 })();
               });
             });
@@ -1683,7 +1624,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
     });
     head.onclick = () => {
       this.ui.elementOpen[key] = !expanded;
-      this.refreshSettings();
+      this.display();
     };
     if (!expanded)
       return;
@@ -1902,7 +1843,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
     head.createSpan({ cls: "beautiful-pdf-fold-chevron", text: open ? "\u25BE" : "\u25B8" });
     head.onclick = () => {
       setOpen(!open);
-      this.refreshSettings();
+      this.display();
     };
     if (open) {
       const body = box.createDiv({ cls: "beautiful-pdf-fold-body" });

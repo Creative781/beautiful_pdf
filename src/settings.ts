@@ -1,10 +1,4 @@
-import {
-	App,
-	PluginSettingTab,
-	Setting,
-	TextComponent,
-	type SettingDefinitionItem,
-} from "obsidian";
+import { App, PluginSettingTab, Setting, TextComponent } from "obsidian";
 import type BeautifulPdfPlugin from "./main";
 import {
 	cloneProfile,
@@ -57,72 +51,11 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
-	/**
-	 * Obsidian 1.13+: declarative definitions (settings search + auto-render).
-	 * Custom UI is painted via `render`; controls still save through our own handlers.
-	 */
-	getSettingDefinitions(): SettingDefinitionItem[] {
-		return [
-			{
-				name: "Beautiful PDF",
-				desc: "Styled PDF export: profiles, page layout, and Markdown element styles.",
-				aliases: [
-					"document profiles",
-					"profile name",
-					"page size",
-					"margins",
-					"page numbers",
-					"header",
-					"footer",
-					"line height",
-					"print background",
-					"markdown elements",
-					"heading",
-					"body",
-					"blockquote",
-					"list",
-					"task list",
-					"code",
-					"table",
-					"callout",
-					"image",
-					"link",
-					"footnote",
-					"embed",
-					"box style",
-					"font",
-					"page break",
-					"Report",
-					"Everyday",
-					"Proposal",
-				],
-				render: (setting) => {
-					const el = setting.settingEl;
-					el.empty();
-					el.addClass("beautiful-pdf-settings");
-					el.addClass("beautiful-pdf-settings-root");
-					this.renderAll(el);
-				},
-			},
-		];
-	}
-
-	/** Obsidian &lt; 1.13 fallback when getSettingDefinitions is unavailable. */
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
 		containerEl.addClass("beautiful-pdf-settings");
 		this.renderAll(containerEl);
-	}
-
-	/** Re-render after profile/page changes (1.13 uses update(), older uses display()). */
-	private refreshSettings(): void {
-		const tab = this as BeautifulPdfSettingTab & { update?: () => void };
-		if (typeof tab.update === "function") {
-			tab.update();
-		} else {
-			this.display();
-		}
 	}
 
 	private renderAll(containerEl: HTMLElement): void {
@@ -158,7 +91,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 				void (async () => {
 					this.plugin.settings.activeProfileId = p.id;
 					await this.plugin.saveSettings();
-					this.refreshSettings();
+					this.display();
 				})();
 			};
 		}
@@ -182,7 +115,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			this.plugin.settings.profiles.push(profile);
 			this.plugin.settings.activeProfileId = profile.id;
 			await this.plugin.saveSettings();
-			this.refreshSettings();
+			this.display();
 		});
 		mkAction("Duplicate", "", async () => {
 			const active = getActiveProfile(this.plugin.settings);
@@ -190,7 +123,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			this.plugin.settings.profiles.push(copy);
 			this.plugin.settings.activeProfileId = copy.id;
 			await this.plugin.saveSettings();
-			this.refreshSettings();
+			this.display();
 		});
 		mkAction("Delete", "is-danger", async () => {
 			if (this.plugin.settings.profiles.length <= 1) return;
@@ -200,7 +133,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			);
 			this.plugin.settings.activeProfileId = this.plugin.settings.profiles[0].id;
 			await this.plugin.saveSettings();
-			this.refreshSettings();
+			this.display();
 		});
 
 		section.createEl("hr", { cls: "beautiful-pdf-divider" });
@@ -259,7 +192,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 							void (async () => {
 								page.pageSize = v as PageSize;
 								await this.plugin.saveSettings();
-								this.refreshSettings();
+								this.display();
 							})();
 						});
 					});
@@ -334,7 +267,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 									void (async () => {
 										page.pageNumber = v as PageNumberPos;
 										await this.plugin.saveSettings();
-										this.refreshSettings();
+										this.display();
 									})();
 								});
 							});
@@ -518,7 +451,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 		head.onclick = () => {
 			this.ui.elementOpen[key] = !expanded;
-			this.refreshSettings();
+			this.display();
 		};
 
 		if (!expanded) return;
@@ -788,7 +721,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		head.createSpan({ cls: "beautiful-pdf-fold-chevron", text: open ? "▾" : "▸" });
 		head.onclick = () => {
 			setOpen(!open);
-			this.refreshSettings();
+			this.display();
 		};
 		if (open) {
 			const body = box.createDiv({ cls: "beautiful-pdf-fold-body" });
