@@ -17,20 +17,37 @@ type ElectronRemote = {
 	shell: { openPath: (path: string) => Promise<string> };
 };
 
+type ElectronModule = {
+	remote?: ElectronRemote;
+};
+
+type FsModule = {
+	promises: { writeFile: (path: string, data: Uint8Array) => Promise<void> };
+};
+
+function getNodeRequire(): NodeRequire {
+	const win = window as Window & { require?: NodeRequire };
+	if (typeof win.require !== "function") {
+		throw new Error(
+			"Electron remote API is unavailable. Beautiful PDF works on Obsidian desktop only.",
+		);
+	}
+	return win.require;
+}
+
 function getElectron(): {
 	remote: ElectronRemote;
-	fs: { promises: { writeFile: (path: string, data: Uint8Array) => Promise<void> } };
+	fs: FsModule;
 } {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const req = (window as any).require as NodeRequire;
-	const electron = req("electron");
-	const fs = req("fs");
+	const req = getNodeRequire();
+	const electron = req("electron") as ElectronModule;
+	const fs = req("fs") as FsModule;
 	let remote: ElectronRemote | undefined = electron.remote;
 	if (!remote) {
 		try {
-			remote = req("@electron/remote");
+			remote = req("@electron/remote") as ElectronRemote;
 		} catch {
-			/* fall through */
+			/* fall through — try electron.remote only */
 		}
 	}
 	if (!remote?.dialog) {
@@ -175,12 +192,12 @@ async function printHtmlToPdf(
 }
 
 function createHiddenWebview(): PrintWebview {
-	const webview = document.createElement("webview") as unknown as PrintWebview;
-	webview.setAttribute(
-		"style",
-		"position:fixed;left:-2000px;top:0;width:794px;height:1123px;opacity:0;pointer-events:none;",
-	);
-	webview.setAttribute("webpreferences", "nodeIntegration=yes");
+	const webview = createEl("webview" as keyof HTMLElementTagNameMap, {
+		cls: "beautiful-pdf-print-webview",
+		attr: {
+			webpreferences: "nodeIntegration=yes",
+		},
+	}) as unknown as PrintWebview;
 	// Same origin as Obsidian so vault app:// image paths resolve
 	webview.src = "app://obsidian.md/help.html";
 	return webview;
@@ -188,11 +205,11 @@ function createHiddenWebview(): PrintWebview {
 
 function waitForDomReady(webview: PrintWebview): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const t = setTimeout(() => reject(new Error("webview timeout")), 15000);
+		const t = window.setTimeout(() => reject(new Error("webview timeout")), 15000);
 		webview.addEventListener(
 			"dom-ready",
 			() => {
-				clearTimeout(t);
+				window.clearTimeout(t);
 				resolve();
 			},
 			{ once: true },
@@ -201,5 +218,5 @@ function waitForDomReady(webview: PrintWebview): Promise<void> {
 }
 
 function sleep(ms: number): Promise<void> {
-	return new Promise((r) => setTimeout(r, ms));
+	return new Promise((r) => window.setTimeout(r, ms));
 }

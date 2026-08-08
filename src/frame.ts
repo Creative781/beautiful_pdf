@@ -69,23 +69,23 @@ export function applyFramePreview(
 	const bg = style.backgroundColor ?? DEFAULT_BG[kind];
 	const accent = accentFor(kind, style);
 
-	sample.style.background = bg;
-	sample.style.padding = "6px 8px";
-
-	if (preset === "outline-card") {
-		sample.style.border = `1px solid ${accent}`;
-		sample.style.borderRadius = "6px";
-		return;
+	sample.removeClass(
+		"is-frame-accent-bar",
+		"is-frame-outline-card",
+		"is-frame-soft-fill",
+		"is-frame-callout",
+		"is-frame-embed",
+		"is-frame-blockquote",
+	);
+	sample.addClass(`is-frame-${preset}`);
+	sample.addClass(`is-frame-${kind}`);
+	sample.setCssStyles({
+		background: bg,
+		borderColor: accent,
+	});
+	if (preset === "accent-bar") {
+		sample.setCssProps({
+			"--bpf-frame-accent": accent,
+		});
 	}
-	if (preset === "soft-fill") {
-		sample.style.border = "none";
-		sample.style.borderLeft = "none";
-		sample.style.borderRadius = "0";
-		sample.style.padding = "6px 10px";
-		return;
-	}
-	const barWidth = kind === "callout" ? "4px" : kind === "embed" ? "2px" : "3px";
-	sample.style.border = "none";
-	sample.style.borderLeft = `${barWidth} solid ${accent}`;
-	sample.style.borderRadius = "4px";
 }

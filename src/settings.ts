@@ -56,8 +56,6 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		containerEl.empty();
 		containerEl.addClass("beautiful-pdf-settings");
 
-		containerEl.createEl("h2", { text: "Beautiful PDF" });
-
 		this.renderProfiles(containerEl);
 		this.renderPageSection(containerEl);
 		this.renderElementsSection(containerEl);
@@ -75,7 +73,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 	private renderProfiles(containerEl: HTMLElement): void {
 		const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-		section.createEl("h3", { text: "Document profiles" });
+		new Setting(section).setName("Document profiles").setHeading();
 
 		const chips = section.createDiv({ cls: "beautiful-pdf-profile-chips" });
 		for (const p of this.plugin.settings.profiles) {
@@ -86,21 +84,25 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 				text: p.name,
 				attr: { type: "button" },
 			});
-			chip.onclick = async () => {
-				this.plugin.settings.activeProfileId = p.id;
-				await this.plugin.saveSettings();
-				this.display();
+			chip.onclick = () => {
+				void (async () => {
+					this.plugin.settings.activeProfileId = p.id;
+					await this.plugin.saveSettings();
+					this.display();
+				})();
 			};
 		}
 
 		const actions = section.createDiv({ cls: "beautiful-pdf-profile-actions" });
-		const mkAction = (label: string, cls: string, fn: () => void) => {
+		const mkAction = (label: string, cls: string, fn: () => void | Promise<void>) => {
 			const b = actions.createEl("button", {
 				text: label,
 				cls: `beautiful-pdf-action-btn ${cls}`,
 				attr: { type: "button" },
 			});
-			b.onclick = fn;
+			b.onclick = () => {
+				void fn();
+			};
 		};
 
 		mkAction("New profile", "", async () => {
@@ -137,12 +139,14 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		new Setting(section)
 			.setName("Profile name")
 			.addText((text) =>
-				text.setValue(profile.name).onChange(async (v) => {
+				text.setValue(profile.name).onChange((v) => {
+				void (async () => {
 					profile.name = v.trim() || profile.name;
 					await this.plugin.saveSettings();
 					const active = chips.querySelector(".is-active");
 					if (active) active.setText(profile.name);
-				}),
+				})();
+			}),
 			);
 	}
 
@@ -166,10 +170,12 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 				new Setting(titleToggle)
 					.setName("Use filename as title")
 					.addToggle((tg) =>
-						tg.setValue(page.useFilenameAsTitle).onChange(async (v) => {
+						tg.setValue(page.useFilenameAsTitle).onChange((v) => {
+				void (async () => {
 							page.useFilenameAsTitle = v;
 							await this.plugin.saveSettings();
-						}),
+						})();
+			}),
 					);
 
 				const sizeBox = this.rowBox(body);
@@ -179,10 +185,12 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 						(["A4", "Letter", "Legal", "Custom"] as PageSize[]).forEach((s) =>
 							dd.addOption(s, s),
 						);
-						dd.setValue(page.pageSize).onChange(async (v) => {
-							page.pageSize = v as PageSize;
-							await this.plugin.saveSettings();
-							this.display();
+						dd.setValue(page.pageSize).onChange((v) => {
+							void (async () => {
+								page.pageSize = v as PageSize;
+								await this.plugin.saveSettings();
+								this.display();
+							})();
 						});
 					});
 
@@ -249,12 +257,15 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 									"bottom-right": "Bottom right",
 									"top-center": "Top center",
 								};
-								for (const [k, label] of Object.entries(opts))
-									dd.addOption(k, label);
-								dd.setValue(page.pageNumber).onChange(async (v) => {
-									page.pageNumber = v as PageNumberPos;
-									await this.plugin.saveSettings();
-									this.display();
+								(Object.keys(opts) as PageNumberPos[]).forEach((k) => {
+									dd.addOption(k, opts[k]);
+								});
+								dd.setValue(page.pageNumber).onChange((v) => {
+									void (async () => {
+										page.pageNumber = v as PageNumberPos;
+										await this.plugin.saveSettings();
+										this.display();
+									})();
 								});
 							});
 						new Setting(inner)
@@ -263,10 +274,12 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 								t
 									.setPlaceholder("{page} / {pages}")
 									.setValue(page.pageNumberFormat)
-									.onChange(async (v) => {
+									.onChange((v) => {
+				void (async () => {
 										page.pageNumberFormat = v;
 										await this.plugin.saveSettings();
-									}),
+									})();
+			}),
 							);
 					},
 					true,
@@ -292,36 +305,44 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 						new Setting(inner)
 							.setName("Header text")
 							.addText((t) =>
-								t.setValue(page.headerText).onChange(async (v) => {
+								t.setValue(page.headerText).onChange((v) => {
+				void (async () => {
 									page.headerText = v;
 									await this.plugin.saveSettings();
-								}),
+								})();
+			}),
 							);
 						new Setting(inner)
 							.setName("Header align")
 							.addDropdown((dd) => {
 								this.addHfAlignOptions(dd);
-								dd.setValue(page.headerAlign ?? "left").onChange(async (v) => {
+								dd.setValue(page.headerAlign ?? "left").onChange((v) => {
+				void (async () => {
 									page.headerAlign = v as HfAlign;
 									await this.plugin.saveSettings();
-								});
+								})();
+			});
 							});
 						new Setting(inner)
 							.setName("Footer text")
 							.addText((t) =>
-								t.setValue(page.footerText).onChange(async (v) => {
+								t.setValue(page.footerText).onChange((v) => {
+				void (async () => {
 									page.footerText = v;
 									await this.plugin.saveSettings();
-								}),
+								})();
+			}),
 							);
 						new Setting(inner)
 							.setName("Footer align")
 							.addDropdown((dd) => {
 								this.addHfAlignOptions(dd);
-								dd.setValue(page.footerAlign ?? "center").onChange(async (v) => {
+								dd.setValue(page.footerAlign ?? "center").onChange((v) => {
+				void (async () => {
 									page.footerAlign = v as HfAlign;
 									await this.plugin.saveSettings();
-								});
+								})();
+			});
 							});
 					},
 					true,
@@ -339,21 +360,25 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 						new Setting(inner)
 							.setName("Default line height (%)")
 							.addText((t) =>
-								t.setValue(String(page.lineHeight)).onChange(async (v) => {
+								t.setValue(String(page.lineHeight)).onChange((v) => {
+				void (async () => {
 									const n = parseFloat(v);
 									if (!Number.isNaN(n) && n > 0) {
 										page.lineHeight = toLineHeightPercent(n);
 										await this.plugin.saveSettings();
 									}
-								}),
+								})();
+			}),
 							);
 						new Setting(inner)
 							.setName("Print background")
 							.addToggle((tg) =>
-								tg.setValue(page.printBackground).onChange(async (v) => {
+								tg.setValue(page.printBackground).onChange((v) => {
+				void (async () => {
 									page.printBackground = v;
 									await this.plugin.saveSettings();
-								}),
+								})();
+			}),
 							);
 					},
 					true,
@@ -374,7 +399,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 	private renderElementsSection(containerEl: HTMLElement): void {
 		const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-		section.createEl("h3", { text: "Markdown elements" });
+		new Setting(section).setName("Markdown elements").setHeading();
 
 		const elements = getActiveProfile(this.plugin.settings).elements;
 
@@ -438,60 +463,72 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 					for (const opt of FRAME_PRESET_OPTIONS) {
 						dd.addOption(opt.id, opt.label);
 					}
-					dd.setValue(style.framePreset ?? "accent-bar").onChange(async (v) => {
+					dd.setValue(style.framePreset ?? "accent-bar").onChange((v) => {
+				void (async () => {
 						style.framePreset = v as FramePreset;
 						await this.plugin.saveSettings();
 						refreshPreview();
-					});
+					})();
+			});
 				});
 		}
 
 		new Setting(editors)
 			.setName("Font")
 			.addText((t) =>
-				t.setValue(style.fontFamily).onChange(async (v) => {
+				t.setValue(style.fontFamily).onChange((v) => {
+				void (async () => {
 					style.fontFamily = v;
 					await this.plugin.saveSettings();
 					refreshPreview();
-				}),
+				})();
+			}),
 			);
 
 		new Setting(editors)
 			.setName("Size (pt)")
 			.addText((t) =>
-				t.setValue(String(style.fontSize)).onChange(async (v) => {
+				t.setValue(String(style.fontSize)).onChange((v) => {
+				void (async () => {
 					const n = parseFloat(v);
 					if (!Number.isNaN(n)) {
 						style.fontSize = n;
 						await this.plugin.saveSettings();
 						refreshPreview();
 					}
-				}),
+				})();
+			}),
 			);
 
 		new Setting(editors)
 			.setName("Weight")
 			.addDropdown((dd) => {
 				(["normal", "bold", "300", "500", "600", "700"] as FontWeight[]).forEach(
-					(w) => dd.addOption(w, w),
+					(w) => {
+						dd.addOption(w, w);
+					},
 				);
-				dd.setValue(style.fontWeight).onChange(async (v) => {
-					style.fontWeight = v as FontWeight;
-					await this.plugin.saveSettings();
-					refreshPreview();
+				dd.setValue(style.fontWeight).onChange((v) => {
+					void (async () => {
+						style.fontWeight = v as FontWeight;
+						await this.plugin.saveSettings();
+						refreshPreview();
+					})();
 				});
 			});
 
 		new Setting(editors)
 			.setName("Align")
 			.addDropdown((dd) => {
-				(["left", "center", "right", "justify"] as TextAlign[]).forEach((a) =>
-					dd.addOption(a, a),
-				);
-				dd.setValue(style.align).onChange(async (v) => {
-					style.align = v as TextAlign;
-					await this.plugin.saveSettings();
-					refreshPreview();
+				(["left", "center", "right", "justify"] as TextAlign[]).forEach((a) => {
+					dd.addOption(a, a);
+				});
+				dd.setValue(style.align).onChange((v) => {
+					void (async () => {
+						style.align = v as TextAlign;
+						await this.plugin.saveSettings();
+						refreshPreview();
+					})();
 				});
 			});
 
@@ -517,41 +554,47 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		new Setting(editors)
 			.setName("Margin top (pt)")
 			.addText((t) =>
-				t.setValue(String(style.marginTop)).onChange(async (v) => {
+				t.setValue(String(style.marginTop)).onChange((v) => {
+				void (async () => {
 					const n = parseFloat(v);
 					if (!Number.isNaN(n)) {
 						style.marginTop = n;
 						await this.plugin.saveSettings();
 						refreshPreview();
 					}
-				}),
+				})();
+			}),
 			);
 
 		new Setting(editors)
 			.setName("Margin bottom (pt)")
 			.addText((t) =>
-				t.setValue(String(style.marginBottom)).onChange(async (v) => {
+				t.setValue(String(style.marginBottom)).onChange((v) => {
+				void (async () => {
 					const n = parseFloat(v);
 					if (!Number.isNaN(n)) {
 						style.marginBottom = n;
 						await this.plugin.saveSettings();
 						refreshPreview();
 					}
-				}),
+				})();
+			}),
 			);
 
 		if (style.lineHeight != null) {
 			new Setting(editors)
 				.setName("Line height (%)")
 				.addText((t) =>
-					t.setValue(String(style.lineHeight)).onChange(async (v) => {
+					t.setValue(String(style.lineHeight)).onChange((v) => {
+				void (async () => {
 						const n = parseFloat(v);
 						if (!Number.isNaN(n) && n > 0) {
 							style.lineHeight = toLineHeightPercent(n);
 							await this.plugin.saveSettings();
 							refreshPreview();
 						}
-					}),
+					})();
+			}),
 				);
 		}
 	}
@@ -571,11 +614,13 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			textComp = t;
 			t.inputEl.addClass("beautiful-pdf-hex-input");
 			t.setPlaceholder("#1a1a1a");
-			t.setValue(value).onChange(async (v) => {
+			t.setValue(value).onChange((v) => {
+				void (async () => {
 				await onChange(v);
 				const hex = normalizeHex(v);
 				if (hex && colorInput) colorInput.value = hex;
 				refreshSwatch();
+			})();
 			});
 		});
 
@@ -583,11 +628,13 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			cls: "beautiful-pdf-color-picker",
 			attr: { type: "color", value: initial, title: "Pick color" },
 		});
-		colorInput.addEventListener("input", async () => {
-			const v = colorInput.value;
-			textComp?.setValue(v);
-			await onChange(v);
-			refreshSwatch();
+		colorInput.addEventListener("input", () => {
+			void (async () => {
+				const v = colorInput.value;
+				textComp?.setValue(v);
+				await onChange(v);
+				refreshSwatch();
+			})();
 		});
 
 		const refreshSwatch = () => {
@@ -604,48 +651,47 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		el.addClass(`beautiful-pdf-preview-kind-${key}`);
 		const sample = el.createDiv({ cls: "beautiful-pdf-preview-sample" });
 		sample.setText(ELEMENT_PREVIEW_TEXT[key]);
-		sample.style.fontFamily = style.fontFamily;
-		sample.style.fontSize = `${Math.min(style.fontSize, 22)}pt`;
-		sample.style.fontWeight = style.fontWeight;
-		sample.style.textAlign = style.align;
-		sample.style.color = style.color;
+		const dynamic: Partial<CSSStyleDeclaration> = {
+			fontFamily: style.fontFamily,
+			fontSize: `${Math.min(style.fontSize, 22)}pt`,
+			fontWeight: style.fontWeight,
+			textAlign: style.align,
+			color: style.color,
+		};
 		if (style.lineHeight != null) {
-			sample.style.lineHeight = lineHeightCss(style.lineHeight);
+			dynamic.lineHeight = lineHeightCss(style.lineHeight);
 		}
 		if (style.backgroundColor && ELEMENTS_WITH_BACKGROUND.includes(key)) {
-			sample.style.background = style.backgroundColor;
-			sample.style.padding = "4px 8px";
-			sample.style.borderRadius = "4px";
-		}
-		if (key === "blockquote") {
-			applyFramePreview(sample, "blockquote", style);
+			sample.addClass("has-bg");
+			dynamic.background = style.backgroundColor;
 		}
 		if (key === "codeInline" || key === "codeBlock") {
-			if (!style.backgroundColor) sample.style.background = "rgba(0,0,0,0.06)";
-			sample.style.padding = "4px 8px";
-			sample.style.borderRadius = "4px";
-			sample.style.whiteSpace = "pre-wrap";
-			sample.style.fontFamily = style.fontFamily;
+			sample.addClass("is-code");
+			dynamic.background = style.backgroundColor ?? "rgba(0,0,0,0.06)";
+			dynamic.fontFamily = style.fontFamily;
 		}
 		if (key === "hr") {
-			sample.style.letterSpacing = "-2px";
-			sample.style.color = style.color;
+			sample.addClass("is-hr");
 		}
 		if (key === "link") {
-			sample.style.textDecoration = "underline";
+			sample.addClass("is-link");
+		}
+		if (key === "table" || key === "tableHeader") {
+			sample.addClass("is-table");
+			if (key === "tableHeader") {
+				sample.addClass("is-table-header");
+				dynamic.background = style.backgroundColor ?? "#f0f0f0";
+			}
+		}
+		sample.setCssStyles(dynamic);
+		if (key === "blockquote") {
+			applyFramePreview(sample, "blockquote", style);
 		}
 		if (key === "callout") {
 			applyFramePreview(sample, "callout", style);
 		}
 		if (key === "embed") {
 			applyFramePreview(sample, "embed", style);
-		}
-		if (key === "table" || key === "tableHeader") {
-			sample.style.border = "1px solid #bbb";
-			sample.style.padding = "4px 8px";
-			if (key === "tableHeader") {
-				sample.style.background = style.backgroundColor ?? "#f0f0f0";
-			}
 		}
 	}
 
@@ -692,12 +738,14 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		onChange: (n: number) => Promise<void>,
 	): void {
 		new Setting(containerEl).setName(name).addText((t) =>
-			t.setValue(String(value)).onChange(async (v) => {
+			t.setValue(String(value)).onChange((v) => {
+				void (async () => {
 				const n = parseFloat(v);
 				if (!Number.isNaN(n)) {
 					await onChange(n);
 					await this.plugin.saveSettings();
 				}
+			})();
 			}),
 		);
 	}

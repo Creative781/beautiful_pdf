@@ -78,13 +78,13 @@ async function waitForEmbeds(el: HTMLElement, ms = 800): Promise<void> {
 }
 
 function sleep(ms: number): Promise<void> {
-	return new Promise((r) => setTimeout(r, ms));
+	return new Promise((r) => window.setTimeout(r, ms));
 }
 
 function convertCanvases(el: HTMLElement): void {
 	el.querySelectorAll("canvas").forEach((canvas) => {
 		try {
-			const img = document.createElement("img");
+			const img = createEl("img");
 			img.src = canvas.toDataURL();
 			img.alt = "canvas";
 			canvas.replaceWith(img);
@@ -139,7 +139,7 @@ function cleanupImageEmbeds(el: HTMLElement): void {
 		});
 		const alt = img.getAttribute("alt") || "";
 		if (alt.startsWith("[") || alt.includes("![[")) {
-			img.setAttribute("alt", alt.replace(/^\[+|\!?\[\[|\]\]$/g, "").trim());
+			img.setAttribute("alt", alt.replace(/^\[+|!?\[\[|\]\]$/g, "").trim());
 		}
 		span.replaceWith(img);
 	});

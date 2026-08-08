@@ -20,7 +20,7 @@ export default class BeautifulPdfPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: "beautiful-pdf-preview",
+			id: "preview",
 			name: "Preview current note as PDF",
 			checkCallback: (checking) => {
 				const file = this.getActiveMarkdownFile();
@@ -31,7 +31,7 @@ export default class BeautifulPdfPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: "beautiful-pdf-export",
+			id: "export",
 			name: "Export current note to PDF",
 			checkCallback: (checking) => {
 				const file = this.getActiveMarkdownFile();
@@ -45,7 +45,7 @@ export default class BeautifulPdfPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: "beautiful-pdf-export-with-profile",
+			id: "export-with-profile",
 			name: "Export current note with profile…",
 			checkCallback: (checking) => {
 				const file = this.getActiveMarkdownFile();
@@ -60,7 +60,7 @@ export default class BeautifulPdfPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: "beautiful-pdf-insert-pagebreak",
+			id: "insert-pagebreak",
 			name: "Insert page break",
 			editorCallback: (editor) => {
 				const pos = editor.getCursor();
@@ -148,7 +148,7 @@ export default class BeautifulPdfPlugin extends Plugin {
 }
 
 function mergeProfile(raw: Profile, fallback: ElementStyles): Profile {
-	const elements = { ...fallback } as ElementStyles;
+	const elements: ElementStyles = { ...fallback };
 	for (const key of ELEMENT_KEYS) {
 		if (raw.elements?.[key]) {
 			const merged = { ...fallback[key], ...raw.elements[key] };
