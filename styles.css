@@ -1,0 +1,473 @@
+.beautiful-pdf-preview-modal {
+	width: min(920px, 92vw);
+	height: min(860px, 90vh);
+	max-width: 92vw;
+	max-height: 90vh;
+	display: flex;
+	flex-direction: column;
+}
+
+.beautiful-pdf-preview-modal .modal-content {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	gap: 10px;
+}
+
+.beautiful-pdf-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+
+.beautiful-pdf-toolbar select {
+	min-width: 140px;
+}
+
+.beautiful-pdf-status {
+	font-size: 12px;
+	opacity: 0.75;
+	margin-left: auto;
+}
+
+.beautiful-pdf-frame-wrap {
+	flex: 1;
+	min-height: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	overflow: hidden;
+	background: var(--background-secondary);
+}
+
+.beautiful-pdf-frame-wrap iframe {
+	width: 100%;
+	height: 100%;
+	border: 0;
+	background: #525659;
+}
+
+/* ===== Settings ===== */
+
+.beautiful-pdf-section {
+	margin-bottom: 22px;
+}
+
+.beautiful-pdf-section > h3 {
+	margin: 0 0 10px;
+	padding-left: 2px;
+}
+
+.beautiful-pdf-tip {
+	margin-top: 8px;
+	padding: 10px 14px;
+	border-radius: 8px;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	font-size: 12px;
+	color: var(--text-muted);
+	line-height: 1.5;
+}
+
+.beautiful-pdf-tip code {
+	font-size: 11px;
+}
+
+/*
+ * Shared left gutter so Setting names and fold titles share one vertical edge.
+ * Chevron column = 18px, then title text.
+ */
+.beautiful-pdf-settings {
+	--bpf-gutter: 18px;
+	--bpf-pad-x: 14px;
+	--bpf-row-h: 44px;
+}
+
+/* Uniform setting rows */
+
+.beautiful-pdf-settings .setting-item {
+	min-height: var(--bpf-row-h);
+	height: var(--bpf-row-h);
+	padding: 0 var(--bpf-pad-x);
+	align-items: center;
+	border-top: none !important;
+	border-bottom: none !important;
+	box-sizing: border-box;
+}
+
+.beautiful-pdf-settings .setting-item-info {
+	justify-content: center;
+	margin-right: 12px;
+}
+
+.beautiful-pdf-settings .setting-item-name {
+	font-size: 13px;
+	line-height: 1.2;
+}
+
+.beautiful-pdf-settings .setting-item-description {
+	display: none !important;
+}
+
+.beautiful-pdf-settings .setting-item-control {
+	align-items: center;
+	gap: 8px;
+	flex-wrap: nowrap;
+}
+
+.beautiful-pdf-settings .setting-item-control input[type="text"],
+.beautiful-pdf-settings .setting-item-control select,
+.beautiful-pdf-settings .dropdown {
+	height: 28px !important;
+	min-height: 28px !important;
+	max-height: 28px !important;
+	line-height: 28px;
+	box-sizing: border-box;
+}
+
+.beautiful-pdf-hex-input {
+	width: 110px !important;
+	max-width: 110px !important;
+	font-family: var(--font-monospace);
+	font-size: 12px;
+}
+
+.beautiful-pdf-color-picker {
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: transparent;
+	cursor: pointer;
+	flex-shrink: 0;
+}
+
+/* Profile chips */
+
+.beautiful-pdf-profile-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 8px;
+	padding: 10px 12px;
+	border-radius: 10px;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+}
+
+.beautiful-pdf-profile-chip {
+	appearance: none;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	border-radius: 999px;
+	padding: 6px 14px;
+	font-size: 13px;
+	cursor: pointer;
+	box-shadow: none;
+	height: 32px;
+	line-height: 1;
+}
+
+.beautiful-pdf-profile-chip:hover {
+	border-color: var(--interactive-accent);
+}
+
+.beautiful-pdf-profile-chip.is-active {
+	background: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-weight: 600;
+}
+
+.beautiful-pdf-profile-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 4px;
+	padding-left: 2px;
+}
+
+.beautiful-pdf-action-btn {
+	appearance: none;
+	height: 30px;
+	padding: 0 12px;
+	font-size: 12px;
+	border-radius: 6px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-muted);
+	cursor: pointer;
+	box-shadow: none;
+}
+
+.beautiful-pdf-action-btn:hover {
+	color: var(--text-normal);
+	border-color: var(--interactive-accent);
+}
+
+.beautiful-pdf-action-btn.is-danger:hover {
+	color: var(--text-error);
+	border-color: var(--text-error);
+}
+
+.beautiful-pdf-divider {
+	border: none;
+	border-top: 1px solid var(--background-modifier-border);
+	margin: 12px 0 8px;
+}
+
+/* Collapsible folds */
+
+.beautiful-pdf-fold {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 8px;
+	margin-bottom: 8px;
+	overflow: hidden;
+	background: var(--background-primary);
+}
+
+.beautiful-pdf-fold.is-nested {
+	margin: 2px 0 2px 20px;
+	border-radius: 6px;
+	border: 1px solid var(--background-modifier-border);
+	border-left: 2px solid var(--background-modifier-border-hover);
+	background: var(--background-primary);
+	box-shadow: none;
+}
+
+.beautiful-pdf-fold.is-nested > .beautiful-pdf-fold-head {
+	min-height: 34px;
+	height: 34px;
+	padding: 0 10px;
+	background: transparent;
+}
+
+.beautiful-pdf-fold.is-nested > .beautiful-pdf-fold-head:hover {
+	background: var(--background-modifier-hover);
+}
+
+.beautiful-pdf-fold.is-nested .beautiful-pdf-fold-title {
+	font-weight: 500;
+	font-size: 11.5px;
+	color: var(--text-muted);
+}
+
+.beautiful-pdf-fold.is-nested .beautiful-pdf-fold-summary {
+	font-size: 10.5px;
+	opacity: 0.8;
+	max-width: 40%;
+}
+
+.beautiful-pdf-fold.is-nested .beautiful-pdf-fold-chevron {
+	font-size: 11px;
+	opacity: 0.4;
+}
+
+/* Titles left-aligned; chevron on the right */
+.beautiful-pdf-fold-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: var(--bpf-row-h);
+	height: var(--bpf-row-h);
+	padding: 0 var(--bpf-pad-x);
+	cursor: pointer;
+	user-select: none;
+	box-sizing: border-box;
+}
+
+.beautiful-pdf-fold-head:hover {
+	background: var(--background-modifier-hover);
+}
+
+.beautiful-pdf-fold-title {
+	font-weight: 650;
+	font-size: 14px;
+	line-height: 1.2;
+	order: 1;
+	color: var(--text-normal);
+}
+
+.beautiful-pdf-fold-summary {
+	margin-left: auto;
+	font-size: 12px;
+	color: var(--text-muted);
+	max-width: 45%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	text-align: right;
+	order: 2;
+}
+
+.beautiful-pdf-fold-chevron {
+	opacity: 0.55;
+	width: var(--bpf-gutter);
+	flex-shrink: 0;
+	text-align: center;
+	font-size: 12px;
+	order: 3;
+	margin-left: 4px;
+}
+
+.beautiful-pdf-fold-body {
+	padding: 10px var(--bpf-pad-x) 10px calc(var(--bpf-pad-x) + 4px);
+	border-top: 1px solid var(--background-modifier-border);
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.beautiful-pdf-fold-body > .setting-item .setting-item-info {
+	padding-left: 0;
+}
+
+.beautiful-pdf-fold-body > .beautiful-pdf-fold.is-nested {
+	margin-left: 20px;
+	margin-right: 0;
+}
+
+/* Parent-level single setting cards */
+.beautiful-pdf-row-box {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 8px;
+	background: var(--background-secondary);
+	min-height: var(--bpf-row-h);
+	overflow: hidden;
+}
+
+.beautiful-pdf-row-box > .setting-item {
+	min-height: var(--bpf-row-h);
+	height: var(--bpf-row-h);
+	padding: 0 var(--bpf-pad-x);
+	margin: 0;
+}
+
+.beautiful-pdf-row-box > .setting-item .setting-item-info {
+	padding-left: 0;
+}
+
+.beautiful-pdf-row-box > .setting-item .setting-item-name {
+	font-size: 13.5px;
+	font-weight: 550;
+}
+
+/* Nested fold body: flat fields, quieter than parent */
+.beautiful-pdf-fold.is-nested .beautiful-pdf-fold-body {
+	padding: 2px 8px 6px 12px;
+	border-top: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	gap: 0;
+}
+
+.beautiful-pdf-fold.is-nested .beautiful-pdf-fold-body > .setting-item {
+	min-height: 34px;
+	height: 34px;
+	padding: 0 2px;
+	border-radius: 0;
+	background: transparent;
+}
+
+.beautiful-pdf-fold.is-nested .beautiful-pdf-fold-body > .setting-item + .setting-item {
+	border-top: 1px solid var(--background-modifier-border) !important;
+}
+
+.beautiful-pdf-fold.is-nested .beautiful-pdf-fold-body > .setting-item .setting-item-name {
+	font-size: 11.5px;
+	font-weight: 400;
+	color: var(--text-muted);
+}
+
+.beautiful-pdf-fold.is-nested .beautiful-pdf-fold-body > .setting-item .setting-item-info {
+	padding-left: 0;
+}
+
+/* Element rows */
+
+.beautiful-pdf-el-row {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 8px;
+	margin-bottom: 8px;
+	overflow: hidden;
+	background: var(--background-primary);
+}
+
+.beautiful-pdf-el-head {
+	display: grid;
+	grid-template-columns: minmax(100px, 150px) 1fr auto;
+	gap: 10px;
+	align-items: center;
+	min-height: 52px;
+	height: 52px;
+	padding: 0 12px;
+	cursor: pointer;
+	box-sizing: border-box;
+}
+
+.beautiful-pdf-el-head:hover {
+	background: var(--background-modifier-hover);
+}
+
+.beautiful-pdf-el-label {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--text-muted);
+	padding-left: 2px;
+}
+
+.beautiful-pdf-el-preview {
+	min-width: 0;
+	height: 36px;
+	padding: 0 10px;
+	border-radius: 6px;
+	background: #fff;
+	border: 1px solid var(--background-modifier-border);
+	color: #1a1a1a;
+	display: flex;
+	align-items: center;
+	overflow: hidden;
+	box-sizing: border-box;
+}
+
+.theme-dark .beautiful-pdf-el-preview {
+	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.beautiful-pdf-preview-sample {
+	margin: 0;
+	overflow: hidden;
+	max-height: 2.2em;
+	width: 100%;
+	line-height: 1.3;
+}
+
+.beautiful-pdf-el-chevron {
+	opacity: 0.5;
+	font-size: 12px;
+	width: var(--bpf-gutter);
+	text-align: center;
+}
+
+.beautiful-pdf-el-editors {
+	padding: 4px 0 8px;
+	border-top: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+}
+
+.beautiful-pdf-el-editors .setting-item {
+	min-height: 40px;
+	height: 40px;
+	padding: 0 12px;
+}
+
+.beautiful-pdf-el-editors .setting-item .setting-item-info {
+	padding-left: 0;
+}
+
+.beautiful-pdf-el-editors .setting-item-control input,
+.beautiful-pdf-el-editors .setting-item-control select {
+	max-width: 180px;
+}

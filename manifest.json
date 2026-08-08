@@ -1,0 +1,11 @@
+{
+	"id": "beautiful-pdf",
+	"name": "Beautiful PDF",
+	"version": "1.0.0",
+	"minAppVersion": "1.5.0",
+	"description": "Export Markdown notes to styled PDFs with element-level style profiles, page settings, and PDF preview.",
+	"author": "Creative781",
+	"authorUrl": "https://github.com/Creative781",
+	"fundingUrl": "https://www.buymeacoffee.com/creative781",
+	"isDesktopOnly": true
+}

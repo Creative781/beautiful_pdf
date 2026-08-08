@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Local plugin data (Obsidian writes this at runtime)
+data.json
+
+# Build cache
+*.js.map
+*.log
+dist/
+.venv
+.agent
+*.zip
