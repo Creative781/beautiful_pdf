@@ -78,10 +78,39 @@
  * Shared left gutter so Setting names and fold titles share one vertical edge.
  * Chevron column = 18px, then title text.
  */
+.beautiful-pdf-settings-root.setting-item {
+	display: block;
+	height: auto;
+	min-height: 0;
+	padding: 0;
+	border: none;
+	background: transparent;
+}
+
+.beautiful-pdf-settings-root .setting-item-info,
+.beautiful-pdf-settings-root > .setting-item-control {
+	display: none;
+}
+
 .beautiful-pdf-settings {
 	--bpf-gutter: 18px;
 	--bpf-pad-x: 14px;
 	--bpf-row-h: 44px;
+}
+
+/* Declarative settings host (Obsidian 1.13+ Setting.render wrapper) */
+.beautiful-pdf-settings-root.setting-item {
+	display: block;
+	height: auto;
+	min-height: 0;
+	padding: 0;
+	border: none;
+	background: transparent;
+}
+
+.beautiful-pdf-settings-root > .setting-item-info,
+.beautiful-pdf-settings-root > .setting-item-control {
+	display: none;
 }
 
 /* Uniform setting rows */

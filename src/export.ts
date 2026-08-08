@@ -25,8 +25,10 @@ type FsModule = {
 	promises: { writeFile: (path: string, data: Uint8Array) => Promise<void> };
 };
 
-function getNodeRequire(): NodeRequire {
-	const win = window as Window & { require?: NodeRequire };
+type UnknownRequire = (id: string) => unknown;
+
+function getNodeRequire(): UnknownRequire {
+	const win = window as Window & { require?: UnknownRequire };
 	if (typeof win.require !== "function") {
 		throw new Error(
 			"Electron remote API is unavailable. Beautiful PDF works on Obsidian desktop only.",
