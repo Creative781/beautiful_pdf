@@ -6,7 +6,7 @@ import { applyPageBreakMarkers } from "./util";
 export interface RenderedNote {
 	htmlDocument: string;
 	title: string;
-	/** Body inner HTML only (for webview injection without help.html leftovers). */
+	/** Body inner HTML only (self-contained; images inlined as data URLs). */
 	bodyHtml: string;
 	css: string;
 }
@@ -43,7 +43,7 @@ export async function renderNoteHtml(
 		await MarkdownRenderer.render(app, markdown, viewEl, file.path, comp);
 		await waitForEmbeds(viewEl);
 		convertCanvases(viewEl);
-		rewriteInternalImages(app, file, viewEl);
+		await rewriteInternalImages(app, file, viewEl);
 		cleanupImageEmbeds(viewEl);
 		stripUiChrome(viewEl);
 
@@ -94,24 +94,66 @@ function convertCanvases(el: HTMLElement): void {
 	});
 }
 
-/** Resolve vault image src to app:// or data URLs where possible. */
-function rewriteInternalImages(app: App, file: TFile, el: HTMLElement): void {
-	el.querySelectorAll("img").forEach((img) => {
-		const src = img.getAttribute("src");
-		if (!src || src.startsWith("data:") || src.startsWith("http")) return;
-		try {
-			const dest = app.metadataCache.getFirstLinkpathDest(
-				decodeURIComponent(src.split("?")[0]),
-				file.path,
-			);
-			if (dest) {
-				const resPath = app.vault.adapter.getResourcePath(dest.path);
-				img.setAttribute("src", resPath);
+/** Resolve vault images and embed them as data URLs for a blank print webview. */
+async function rewriteInternalImages(
+	app: App,
+	file: TFile,
+	el: HTMLElement,
+): Promise<void> {
+	const imgs = Array.from(el.querySelectorAll("img"));
+	await Promise.all(
+		imgs.map(async (img) => {
+			const src = img.getAttribute("src");
+			if (!src || src.startsWith("data:")) return;
+
+			let dest: TFile | null = null;
+			try {
+				dest = app.metadataCache.getFirstLinkpathDest(
+					decodeURIComponent(src.split("?")[0]),
+					file.path,
+				);
+			} catch {
+				dest = null;
 			}
-		} catch {
-			/* keep original */
-		}
-	});
+			if (!dest) dest = resolveImageFile(app, file, src);
+
+			if (dest) {
+				try {
+					const data = await app.vault.readBinary(dest);
+					img.setAttribute(
+						"src",
+						`data:${mimeFromExtension(dest.extension)};base64,${arrayBufferToBase64(data)}`,
+					);
+					return;
+				} catch {
+					/* try resource path / fetch below */
+				}
+				try {
+					const resPath = app.vault.adapter.getResourcePath(dest.path);
+					img.setAttribute("src", resPath);
+				} catch {
+					/* keep original */
+				}
+			}
+
+			const current = img.getAttribute("src");
+			if (!current || current.startsWith("data:")) return;
+			try {
+				const res = await fetch(current);
+				if (!res.ok) return;
+				const data = await res.arrayBuffer();
+				const mime =
+					res.headers.get("content-type")?.split(";")[0] ||
+					mimeFromExtension(current.split(".").pop() || "");
+				img.setAttribute(
+					"src",
+					`data:${mime};base64,${arrayBufferToBase64(data)}`,
+				);
+			} catch {
+				/* keep original src */
+			}
+		}),
+	);
 }
 
 /**
@@ -161,6 +203,57 @@ function stripUiChrome(el: HTMLElement): void {
 	el.querySelectorAll(
 		".copy-code-button, .code-block-buttons, .edit-block-button, button.copy-code-button",
 	).forEach((node) => node.remove());
+}
+
+/**
+ * Embed vault images as data URLs so print webview can use about:blank
+ * (no Obsidian help.html origin, no help branding race).
+ */
+function resolveImageFile(app: App, fromFile: TFile, src: string): TFile | null {
+	const raw = decodeURIComponent(src.split("?")[0] || "");
+	const candidates = [raw];
+	const slash = raw.lastIndexOf("/");
+	if (slash >= 0) candidates.push(raw.slice(slash + 1));
+	// app://local/.../vaultRelative/path.png → try vault-relative tail
+	const localIdx = raw.indexOf("/Mobile Documents/");
+	if (localIdx >= 0) {
+		const after = raw.slice(localIdx);
+		const vaultMarker = "/Documents/";
+		const vi = after.lastIndexOf(vaultMarker);
+		if (vi >= 0) candidates.push(after.slice(vi + vaultMarker.length));
+	}
+	for (const c of candidates) {
+		const dest = app.metadataCache.getFirstLinkpathDest(c, fromFile.path);
+		if (dest instanceof TFile) return dest;
+		const byPath = app.vault.getAbstractFileByPath(c);
+		if (byPath instanceof TFile) return byPath;
+	}
+	return null;
+}
+
+function mimeFromExtension(ext: string): string {
+	const e = ext.replace(/^\./, "").toLowerCase();
+	const map: Record<string, string> = {
+		png: "image/png",
+		jpg: "image/jpeg",
+		jpeg: "image/jpeg",
+		gif: "image/gif",
+		webp: "image/webp",
+		svg: "image/svg+xml",
+		bmp: "image/bmp",
+		avif: "image/avif",
+	};
+	return map[e] || "application/octet-stream";
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+	const bytes = new Uint8Array(buffer);
+	let binary = "";
+	const chunk = 0x8000;
+	for (let i = 0; i < bytes.length; i += chunk) {
+		binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+	}
+	return btoa(binary);
 }
 
 function escapeAttr(s: string): string {

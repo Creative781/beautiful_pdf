@@ -434,7 +434,7 @@ async function renderNoteHtml(app, file, profile) {
     await import_obsidian.MarkdownRenderer.render(app, markdown, viewEl, file.path, comp);
     await waitForEmbeds(viewEl);
     convertCanvases(viewEl);
-    rewriteInternalImages(app, file, viewEl);
+    await rewriteInternalImages(app, file, viewEl);
     cleanupImageEmbeds(viewEl);
     stripUiChrome(viewEl);
     const css = profileToCss(profile);
@@ -478,23 +478,58 @@ function convertCanvases(el2) {
     }
   });
 }
-function rewriteInternalImages(app, file, el2) {
-  el2.querySelectorAll("img").forEach((img) => {
-    const src = img.getAttribute("src");
-    if (!src || src.startsWith("data:") || src.startsWith("http"))
-      return;
-    try {
-      const dest = app.metadataCache.getFirstLinkpathDest(
-        decodeURIComponent(src.split("?")[0]),
-        file.path
-      );
-      if (dest) {
-        const resPath = app.vault.adapter.getResourcePath(dest.path);
-        img.setAttribute("src", resPath);
+async function rewriteInternalImages(app, file, el2) {
+  const imgs = Array.from(el2.querySelectorAll("img"));
+  await Promise.all(
+    imgs.map(async (img) => {
+      var _a;
+      const src = img.getAttribute("src");
+      if (!src || src.startsWith("data:"))
+        return;
+      let dest = null;
+      try {
+        dest = app.metadataCache.getFirstLinkpathDest(
+          decodeURIComponent(src.split("?")[0]),
+          file.path
+        );
+      } catch (e) {
+        dest = null;
       }
-    } catch (e) {
-    }
-  });
+      if (!dest)
+        dest = resolveImageFile(app, file, src);
+      if (dest) {
+        try {
+          const data = await app.vault.readBinary(dest);
+          img.setAttribute(
+            "src",
+            `data:${mimeFromExtension(dest.extension)};base64,${arrayBufferToBase64(data)}`
+          );
+          return;
+        } catch (e) {
+        }
+        try {
+          const resPath = app.vault.adapter.getResourcePath(dest.path);
+          img.setAttribute("src", resPath);
+        } catch (e) {
+        }
+      }
+      const current = img.getAttribute("src");
+      if (!current || current.startsWith("data:"))
+        return;
+      try {
+        const res = await fetch(current);
+        if (!res.ok)
+          return;
+        const data = await res.arrayBuffer();
+        const mime = ((_a = res.headers.get("content-type")) == null ? void 0 : _a.split(";")[0]) || mimeFromExtension(current.split(".").pop() || "");
+        img.setAttribute(
+          "src",
+          `data:${mime};base64,${arrayBufferToBase64(data)}`
+        );
+      } catch (e) {
+      }
+    })
+  );
 }
 function cleanupImageEmbeds(el2) {
   const embeds = el2.querySelectorAll(
@@ -537,6 +572,53 @@ function stripUiChrome(el2) {
   el2.querySelectorAll(
     ".copy-code-button, .code-block-buttons, .edit-block-button, button.copy-code-button"
   ).forEach((node) => node.remove());
+}
+function resolveImageFile(app, fromFile, src) {
+  const raw = decodeURIComponent(src.split("?")[0] || "");
+  const candidates = [raw];
+  const slash = raw.lastIndexOf("/");
+  if (slash >= 0)
+    candidates.push(raw.slice(slash + 1));
+  const localIdx = raw.indexOf("/Mobile Documents/");
+  if (localIdx >= 0) {
+    const after = raw.slice(localIdx);
+    const vaultMarker = "/Documents/";
+    const vi = after.lastIndexOf(vaultMarker);
+    if (vi >= 0)
+      candidates.push(after.slice(vi + vaultMarker.length));
+  }
+  for (const c of candidates) {
+    const dest = app.metadataCache.getFirstLinkpathDest(c, fromFile.path);
+    if (dest instanceof import_obsidian.TFile)
+      return dest;
+    const byPath = app.vault.getAbstractFileByPath(c);
+    if (byPath instanceof import_obsidian.TFile)
+      return byPath;
+  }
+  return null;
+}
+function mimeFromExtension(ext) {
+  const e = ext.replace(/^\./, "").toLowerCase();
+  const map = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    svg: "image/svg+xml",
+    bmp: "image/bmp",
+    avif: "image/avif"
+  };
+  return map[e] || "application/octet-stream";
+}
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunk = 32768;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
 }
 function escapeAttr(s) {
   return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
@@ -606,43 +688,35 @@ async function exportPdfToFile(app, file, profile, openAfter = true) {
 }
 async function printHtmlToPdf(rendered, profile) {
   const webview = createHiddenWebview();
+  const ready = waitForDomReady(webview);
   document.body.appendChild(webview);
+  webview.src = "about:blank";
   try {
-    await waitForDomReady(webview);
+    await ready;
     await webview.executeJavaScript(`
 			(() => {
-				document.head.innerHTML = "";
-				document.body.innerHTML = "";
-				document.querySelectorAll("img, svg, picture, video").forEach((n) => n.remove());
-				const meta = document.createElement("meta");
-				meta.setAttribute("charset", "utf-8");
-				document.head.appendChild(meta);
-				const title = document.createElement("title");
-				title.textContent = ${JSON.stringify(rendered.title)};
-				document.head.appendChild(title);
-				const style = document.createElement("style");
-				style.textContent = ${JSON.stringify(rendered.css)};
-				document.head.appendChild(style);
-				document.body.innerHTML = ${JSON.stringify(
-      `<div class="markdown-preview-view markdown-rendered">${rendered.bodyHtml}</div>`
-    )};
-				document.documentElement.style.background = "#fff";
-				document.body.style.background = "#fff";
-				document.body.style.margin = "0";
+				document.open();
+				document.write(${JSON.stringify(rendered.htmlDocument)});
+				document.close();
 			})();
 		`);
     await webview.executeJavaScript(`
-			Promise.all(
-				Array.from(document.images).map((img) => {
-					if (img.complete) return Promise.resolve();
-					return new Promise((resolve) => {
-						img.onload = img.onerror = () => resolve();
-						setTimeout(resolve, 3000);
-					});
-				}),
-			);
+			(() => new Promise((resolve) => {
+				const waitImages = () => Promise.all(
+					Array.from(document.images).map((img) => {
+						if (img.complete) return Promise.resolve();
+						return new Promise((r) => {
+							img.onload = img.onerror = () => r();
+							setTimeout(r, 3000);
+						});
+					}),
+				);
+				const finish = () => waitImages().then(() => resolve(true));
+				if (document.readyState === "complete") finish();
+				else window.addEventListener("load", finish, { once: true });
+			}))();
 		`);
-    await sleep2(250);
+    await sleep2(100);
     const hf = headerFooterTemplates(profile);
     const page = profile.page;
     let pageSize = page.pageSize;
@@ -675,14 +749,12 @@ async function printHtmlToPdf(rendered, profile) {
   }
 }
 function createHiddenWebview() {
-  const webview = createEl("webview", {
+  return createEl("webview", {
     cls: "beautiful-pdf-print-webview",
     attr: {
       webpreferences: "nodeIntegration=yes"
     }
   });
-  webview.src = "app://obsidian.md/help.html";
-  return webview;
 }
 function waitForDomReady(webview) {
   return new Promise((resolve, reject) => {

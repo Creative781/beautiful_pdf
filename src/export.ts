@@ -111,53 +111,48 @@ export async function exportPdfToFile(
 	}
 }
 
+/**
+ * Print via a blank webview + document.write of our HTML.
+ * Never navigate to Obsidian help.html — its logo/branding can race into printToPDF.
+ */
 async function printHtmlToPdf(
 	rendered: { htmlDocument: string; bodyHtml: string; css: string; title: string },
 	profile: Profile,
 ): Promise<Uint8Array> {
 	const webview = createHiddenWebview();
+	const ready = waitForDomReady(webview);
 	document.body.appendChild(webview);
+	webview.src = "about:blank";
 
 	try {
-		await waitForDomReady(webview);
+		await ready;
 
-		// Replace help.html contents entirely so Obsidian help branding cannot leak
+		// Replace the blank document entirely (no help.html leftovers possible).
 		await webview.executeJavaScript(`
 			(() => {
-				document.head.innerHTML = "";
-				document.body.innerHTML = "";
-				document.querySelectorAll("img, svg, picture, video").forEach((n) => n.remove());
-				const meta = document.createElement("meta");
-				meta.setAttribute("charset", "utf-8");
-				document.head.appendChild(meta);
-				const title = document.createElement("title");
-				title.textContent = ${JSON.stringify(rendered.title)};
-				document.head.appendChild(title);
-				const style = document.createElement("style");
-				style.textContent = ${JSON.stringify(rendered.css)};
-				document.head.appendChild(style);
-				document.body.innerHTML = ${JSON.stringify(
-					`<div class="markdown-preview-view markdown-rendered">${rendered.bodyHtml}</div>`,
-				)};
-				document.documentElement.style.background = "#fff";
-				document.body.style.background = "#fff";
-				document.body.style.margin = "0";
+				document.open();
+				document.write(${JSON.stringify(rendered.htmlDocument)});
+				document.close();
 			})();
 		`);
 
-		// Wait for vault images (app://) to settle
 		await webview.executeJavaScript(`
-			Promise.all(
-				Array.from(document.images).map((img) => {
-					if (img.complete) return Promise.resolve();
-					return new Promise((resolve) => {
-						img.onload = img.onerror = () => resolve();
-						setTimeout(resolve, 3000);
-					});
-				}),
-			);
+			(() => new Promise((resolve) => {
+				const waitImages = () => Promise.all(
+					Array.from(document.images).map((img) => {
+						if (img.complete) return Promise.resolve();
+						return new Promise((r) => {
+							img.onload = img.onerror = () => r();
+							setTimeout(r, 3000);
+						});
+					}),
+				);
+				const finish = () => waitImages().then(() => resolve(true));
+				if (document.readyState === "complete") finish();
+				else window.addEventListener("load", finish, { once: true });
+			}))();
 		`);
-		await sleep(250);
+		await sleep(100);
 
 		const hf = headerFooterTemplates(profile);
 		const page = profile.page;
@@ -194,15 +189,12 @@ async function printHtmlToPdf(
 }
 
 function createHiddenWebview(): PrintWebview {
-	const webview = createEl("webview" as keyof HTMLElementTagNameMap, {
+	return createEl("webview" as keyof HTMLElementTagNameMap, {
 		cls: "beautiful-pdf-print-webview",
 		attr: {
 			webpreferences: "nodeIntegration=yes",
 		},
 	}) as unknown as PrintWebview;
-	// Same origin as Obsidian so vault app:// image paths resolve
-	webview.src = "app://obsidian.md/help.html";
-	return webview;
 }
 
 function waitForDomReady(webview: PrintWebview): Promise<void> {
