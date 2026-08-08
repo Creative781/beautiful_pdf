@@ -15,7 +15,7 @@ export default class BeautifulPdfPlugin extends Plugin {
 
 		this.addSettingTab(new BeautifulPdfSettingTab(this.app, this));
 
-		this.addRibbonIcon("file-text", "Beautiful PDF 미리보기", () => {
+		this.addRibbonIcon("file-text", "Beautiful PDF preview", () => {
 			void this.openPreview();
 		});
 
@@ -100,7 +100,7 @@ export default class BeautifulPdfPlugin extends Plugin {
 	async openPreview(file?: TFile): Promise<void> {
 		const target = file ?? this.getActiveMarkdownFile();
 		if (!target) {
-			new Notice("마크다운 노트를 열어 주세요.");
+			new Notice("Open a Markdown note first.");
 			return;
 		}
 		new PreviewModal(this.app, this, target).open();

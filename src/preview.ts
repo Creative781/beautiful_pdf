@@ -23,7 +23,7 @@ export class PreviewModal extends Modal {
 		this.modalEl.addClass("beautiful-pdf-preview-modal");
 		contentEl.empty();
 
-		contentEl.createEl("h2", { text: "Beautiful PDF 미리보기" });
+		contentEl.createEl("h2", { text: "Beautiful PDF preview" });
 
 		const toolbar = contentEl.createDiv({ cls: "beautiful-pdf-toolbar" });
 
@@ -38,11 +38,11 @@ export class PreviewModal extends Modal {
 			await this.refresh();
 		};
 
-		const refreshBtn = toolbar.createEl("button", { text: "새로고침" });
+		const refreshBtn = toolbar.createEl("button", { text: "Refresh" });
 		refreshBtn.onclick = () => void this.refresh();
 
 		const saveBtn = toolbar.createEl("button", {
-			text: "PDF로 저장",
+			text: "Save PDF",
 			cls: "mod-cta",
 		});
 		saveBtn.onclick = async () => {
@@ -63,16 +63,16 @@ export class PreviewModal extends Modal {
 	async refresh(): Promise<void> {
 		if (this.generating) return;
 		this.generating = true;
-		this.setStatus("PDF 생성 중…");
+		this.setStatus("Generating PDF…");
 		try {
 			const profile = getActiveProfile(this.plugin.settings);
 			const { data } = await generatePdf(this.app, this.file, profile);
 			this.showPdf(data);
-			this.setStatus(`프로필: ${profile.name}`);
+			this.setStatus(`Profile: ${profile.name}`);
 		} catch (err) {
 			console.error(err);
-			this.setStatus("생성 실패");
-			new Notice(`미리보기 실패: ${String(err)}`);
+			this.setStatus("Failed");
+			new Notice(`Preview failed: ${String(err)}`);
 		} finally {
 			this.generating = false;
 		}
@@ -117,11 +117,11 @@ export class ProfileSuggestModal extends Modal {
 	onOpen(): void {
 		const { contentEl } = this;
 		contentEl.empty();
-		contentEl.createEl("h2", { text: "프로필 선택" });
+		contentEl.createEl("h2", { text: "Choose profile" });
 		for (const profile of this.plugin.settings.profiles) {
 			new Setting(contentEl).setName(profile.name).addButton((btn) =>
 				btn
-					.setButtonText("선택")
+					.setButtonText("Select")
 					.setCta()
 					.onClick(() => {
 						this.close();

@@ -54,9 +54,9 @@ export const FRAME_PRESET_OPTIONS: {
 	id: FramePreset;
 	label: string;
 }[] = [
-	{ id: "accent-bar", label: "강조선 (왼쪽 세로줄)" },
-	{ id: "outline-card", label: "테두리 카드" },
-	{ id: "soft-fill", label: "소프트 채움 (선 없음)" },
+	{ id: "accent-bar", label: "Accent bar (left edge)" },
+	{ id: "outline-card", label: "Outline card" },
+	{ id: "soft-fill", label: "Soft fill (no border)" },
 ];
 
 export const ELEMENTS_WITH_FRAME: ElementKey[] = [
@@ -100,64 +100,64 @@ export interface BeautifulPdfSettings {
 }
 
 export const ELEMENT_LABELS: Record<ElementKey, string> = {
-	h1: "제목 # (H1)",
-	h2: "제목 ## (H2)",
-	h3: "제목 ### (H3)",
-	h4: "제목 #### (H4)",
-	h5: "제목 ##### (H5)",
-	h6: "제목 ###### (H6)",
-	body: "본문",
-	blockquote: "인용",
-	list: "리스트",
-	taskList: "체크박스",
-	codeInline: "인라인 코드",
-	codeBlock: "코드 블록",
-	hr: "구분선",
-	table: "표 본문",
-	tableHeader: "표 헤더",
-	callout: "콜아웃",
-	calloutTitle: "콜아웃 제목",
-	image: "이미지",
-	link: "링크",
-	footnote: "각주",
-	embed: "임베드",
+	h1: "Heading # (H1)",
+	h2: "Heading ## (H2)",
+	h3: "Heading ### (H3)",
+	h4: "Heading #### (H4)",
+	h5: "Heading ##### (H5)",
+	h6: "Heading ###### (H6)",
+	body: "Body",
+	blockquote: "Blockquote",
+	list: "List",
+	taskList: "Task list",
+	codeInline: "Inline code",
+	codeBlock: "Code block",
+	hr: "Horizontal rule",
+	table: "Table body",
+	tableHeader: "Table header",
+	callout: "Callout",
+	calloutTitle: "Callout title",
+	image: "Image",
+	link: "Link",
+	footnote: "Footnote",
+	embed: "Embed",
 };
 
 export const ELEMENT_KEYS = Object.keys(ELEMENT_LABELS) as ElementKey[];
 
 /** Settings UI groups for markdown elements. */
 export const ELEMENT_GROUPS: { id: string; label: string; keys: ElementKey[] }[] = [
-	{ id: "headings", label: "제목", keys: ["h1", "h2", "h3", "h4", "h5", "h6"] },
-	{ id: "body", label: "본문 · 인용", keys: ["body", "blockquote"] },
-	{ id: "lists", label: "리스트", keys: ["list", "taskList"] },
-	{ id: "code", label: "코드", keys: ["codeInline", "codeBlock"] },
-	{ id: "table", label: "표", keys: ["table", "tableHeader"] },
-	{ id: "callout", label: "콜아웃", keys: ["callout", "calloutTitle"] },
-	{ id: "misc", label: "기타", keys: ["hr", "image", "link", "footnote", "embed"] },
+	{ id: "headings", label: "Headings", keys: ["h1", "h2", "h3", "h4", "h5", "h6"] },
+	{ id: "body", label: "Body · quote", keys: ["body", "blockquote"] },
+	{ id: "lists", label: "Lists", keys: ["list", "taskList"] },
+	{ id: "code", label: "Code", keys: ["codeInline", "codeBlock"] },
+	{ id: "table", label: "Tables", keys: ["table", "tableHeader"] },
+	{ id: "callout", label: "Callouts", keys: ["callout", "calloutTitle"] },
+	{ id: "misc", label: "Other", keys: ["hr", "image", "link", "footnote", "embed"] },
 ];
 
 export const ELEMENT_PREVIEW_TEXT: Record<ElementKey, string> = {
-	h1: "제목 예시 (#)",
-	h2: "제목 예시 (##)",
-	h3: "제목 예시 (###)",
-	h4: "제목 예시 (####)",
-	h5: "제목 예시 (#####)",
-	h6: "제목 예시 (######)",
-	body: "본문 단락이 이렇게 보입니다. 행간과 글자 크기를 확인하세요.",
-	blockquote: "인용문입니다. 왼쪽 테두리와 색을 확인하세요.",
-	list: "• 리스트 항목 예시",
-	taskList: "☑ 체크박스 항목 예시",
+	h1: "Heading sample (#)",
+	h2: "Heading sample (##)",
+	h3: "Heading sample (###)",
+	h4: "Heading sample (####)",
+	h5: "Heading sample (#####)",
+	h6: "Heading sample (######)",
+	body: "Body text looks like this. Check line height and font size.",
+	blockquote: "A blockquote sample. Check the left border and colors.",
+	list: "• List item sample",
+	taskList: "☑ Task list item sample",
 	codeInline: "const x = 1",
 	codeBlock: "function hello() {\n  return true;\n}",
 	hr: "────────",
-	table: "표 셀 텍스트 예시",
-	tableHeader: "표 헤더 예시",
-	callout: "콜아웃 본문 예시입니다.",
-	calloutTitle: "콜아웃 제목",
-	image: "[ 이미지 정렬 · 여백 ]",
-	link: "링크 텍스트 예시",
-	footnote: "각주 내용 예시¹",
-	embed: "임베드 미리보기 영역",
+	table: "Table cell sample",
+	tableHeader: "Table header sample",
+	callout: "Callout body sample.",
+	calloutTitle: "Callout title",
+	image: "[ Image align · spacing ]",
+	link: "Link text sample",
+	footnote: "Footnote sample¹",
+	embed: "Embed preview area",
 };
 
 /** Elements that expose a background color control in settings. */
@@ -170,4 +170,4 @@ export const ELEMENTS_WITH_BACKGROUND: ElementKey[] = [
 	"embed",
 ];
 
-export const SETTINGS_VERSION = 2;
+export const SETTINGS_VERSION = 3;

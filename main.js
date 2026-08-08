@@ -555,7 +555,7 @@ function getElectron() {
   }
   if (!(remote == null ? void 0 : remote.dialog)) {
     throw new Error(
-      "Electron remote API\uB97C \uC0AC\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. Obsidian \uB370\uC2A4\uD06C\uD1B1\uC5D0\uC11C\uB9CC \uB3D9\uC791\uD569\uB2C8\uB2E4."
+      "Electron remote API is unavailable. Beautiful PDF works on Obsidian desktop only."
     );
   }
   return { remote, fs };
@@ -566,7 +566,7 @@ async function generatePdf(app, file, profile) {
   return { data, title: rendered.title };
 }
 async function exportPdfToFile(app, file, profile, openAfter = true) {
-  const notice = new import_obsidian2.Notice("Beautiful PDF: \uC0DD\uC131\uD558\uB294 \uC911\u2026", 0);
+  const notice = new import_obsidian2.Notice("Beautiful PDF: generating\u2026", 0);
   try {
     const { data, title } = await generatePdf(app, file, profile);
     const { remote, fs } = getElectron();
@@ -582,7 +582,7 @@ async function exportPdfToFile(app, file, profile, openAfter = true) {
     }
     await fs.promises.writeFile(result.filePath, data);
     notice.hide();
-    new import_obsidian2.Notice("Beautiful PDF: \uC800\uC7A5 \uC644\uB8CC");
+    new import_obsidian2.Notice("Beautiful PDF: saved");
     if (openAfter) {
       await remote.shell.openPath(result.filePath);
     }
@@ -590,7 +590,7 @@ async function exportPdfToFile(app, file, profile, openAfter = true) {
   } catch (err) {
     notice.hide();
     console.error(err);
-    new import_obsidian2.Notice(`Beautiful PDF \uC624\uB958: ${String(err)}`);
+    new import_obsidian2.Notice(`Beautiful PDF error: ${String(err)}`);
     return null;
   }
 }
@@ -913,7 +913,7 @@ function createReportProfile() {
   elements.embed.framePreset = "accent-bar";
   return {
     id: "report",
-    name: "\uBCF4\uACE0\uC11C",
+    name: "Report",
     page: basePage({
       marginTopMm: 28,
       marginBottomMm: 24,
@@ -965,7 +965,7 @@ function createLifeProfile() {
   elements.embed.framePreset = "soft-fill";
   return {
     id: "life",
-    name: "\uC0DD\uD65C\uBB38\uC11C",
+    name: "Everyday",
     page: basePage({
       marginTopMm: 14,
       marginBottomMm: 14,
@@ -1024,7 +1024,7 @@ function createPlanProfile() {
   elements.footnote.fontSize = 8;
   return {
     id: "plan",
-    name: "\uAE30\uD68D\uC548",
+    name: "Proposal",
     page: basePage({
       marginTopMm: 18,
       marginBottomMm: 16,
@@ -1034,7 +1034,7 @@ function createPlanProfile() {
       pageNumber: "top-center",
       pageNumberFormat: "{page} / {pages}",
       useFilenameAsTitle: true,
-      headerText: "\uAE30\uD68D\uC548",
+      headerText: "Proposal",
       headerAlign: "right",
       footerText: ""
     }),
@@ -1047,7 +1047,7 @@ function createSampleProfiles() {
 function createDefaultSettings() {
   const profiles = createSampleProfiles();
   return {
-    settingsVersion: 2,
+    settingsVersion: 3,
     activeProfileId: profiles[0].id,
     profiles
   };
@@ -1089,7 +1089,7 @@ var PreviewModal = class extends import_obsidian3.Modal {
     const { contentEl } = this;
     this.modalEl.addClass("beautiful-pdf-preview-modal");
     contentEl.empty();
-    contentEl.createEl("h2", { text: "Beautiful PDF \uBBF8\uB9AC\uBCF4\uAE30" });
+    contentEl.createEl("h2", { text: "Beautiful PDF preview" });
     const toolbar = contentEl.createDiv({ cls: "beautiful-pdf-toolbar" });
     const select = toolbar.createEl("select");
     for (const p of this.plugin.settings.profiles) {
@@ -1102,10 +1102,10 @@ var PreviewModal = class extends import_obsidian3.Modal {
       await this.plugin.saveSettings();
       await this.refresh();
     };
-    const refreshBtn = toolbar.createEl("button", { text: "\uC0C8\uB85C\uACE0\uCE68" });
+    const refreshBtn = toolbar.createEl("button", { text: "Refresh" });
     refreshBtn.onclick = () => void this.refresh();
     const saveBtn = toolbar.createEl("button", {
-      text: "PDF\uB85C \uC800\uC7A5",
+      text: "Save PDF",
       cls: "mod-cta"
     });
     saveBtn.onclick = async () => {
@@ -1123,16 +1123,16 @@ var PreviewModal = class extends import_obsidian3.Modal {
     if (this.generating)
       return;
     this.generating = true;
-    this.setStatus("PDF \uC0DD\uC131 \uC911\u2026");
+    this.setStatus("Generating PDF\u2026");
     try {
       const profile = getActiveProfile(this.plugin.settings);
       const { data } = await generatePdf(this.app, this.file, profile);
       this.showPdf(data);
-      this.setStatus(`\uD504\uB85C\uD544: ${profile.name}`);
+      this.setStatus(`Profile: ${profile.name}`);
     } catch (err) {
       console.error(err);
-      this.setStatus("\uC0DD\uC131 \uC2E4\uD328");
-      new import_obsidian3.Notice(`\uBBF8\uB9AC\uBCF4\uAE30 \uC2E4\uD328: ${String(err)}`);
+      this.setStatus("Failed");
+      new import_obsidian3.Notice(`Preview failed: ${String(err)}`);
     } finally {
       this.generating = false;
     }
@@ -1166,10 +1166,10 @@ var ProfileSuggestModal = class extends import_obsidian3.Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createEl("h2", { text: "\uD504\uB85C\uD544 \uC120\uD0DD" });
+    contentEl.createEl("h2", { text: "Choose profile" });
     for (const profile of this.plugin.settings.profiles) {
       new import_obsidian3.Setting(contentEl).setName(profile.name).addButton(
-        (btn) => btn.setButtonText("\uC120\uD0DD").setCta().onClick(() => {
+        (btn) => btn.setButtonText("Select").setCta().onClick(() => {
           this.close();
           this.onChoose(profile);
         })
@@ -1186,9 +1186,9 @@ var import_obsidian4 = require("obsidian");
 
 // src/types.ts
 var FRAME_PRESET_OPTIONS = [
-  { id: "accent-bar", label: "\uAC15\uC870\uC120 (\uC67C\uCABD \uC138\uB85C\uC904)" },
-  { id: "outline-card", label: "\uD14C\uB450\uB9AC \uCE74\uB4DC" },
-  { id: "soft-fill", label: "\uC18C\uD504\uD2B8 \uCC44\uC6C0 (\uC120 \uC5C6\uC74C)" }
+  { id: "accent-bar", label: "Accent bar (left edge)" },
+  { id: "outline-card", label: "Outline card" },
+  { id: "soft-fill", label: "Soft fill (no border)" }
 ];
 var ELEMENTS_WITH_FRAME = [
   "blockquote",
@@ -1196,60 +1196,60 @@ var ELEMENTS_WITH_FRAME = [
   "embed"
 ];
 var ELEMENT_LABELS = {
-  h1: "\uC81C\uBAA9 # (H1)",
-  h2: "\uC81C\uBAA9 ## (H2)",
-  h3: "\uC81C\uBAA9 ### (H3)",
-  h4: "\uC81C\uBAA9 #### (H4)",
-  h5: "\uC81C\uBAA9 ##### (H5)",
-  h6: "\uC81C\uBAA9 ###### (H6)",
-  body: "\uBCF8\uBB38",
-  blockquote: "\uC778\uC6A9",
-  list: "\uB9AC\uC2A4\uD2B8",
-  taskList: "\uCCB4\uD06C\uBC15\uC2A4",
-  codeInline: "\uC778\uB77C\uC778 \uCF54\uB4DC",
-  codeBlock: "\uCF54\uB4DC \uBE14\uB85D",
-  hr: "\uAD6C\uBD84\uC120",
-  table: "\uD45C \uBCF8\uBB38",
-  tableHeader: "\uD45C \uD5E4\uB354",
-  callout: "\uCF5C\uC544\uC6C3",
-  calloutTitle: "\uCF5C\uC544\uC6C3 \uC81C\uBAA9",
-  image: "\uC774\uBBF8\uC9C0",
-  link: "\uB9C1\uD06C",
-  footnote: "\uAC01\uC8FC",
-  embed: "\uC784\uBCA0\uB4DC"
+  h1: "Heading # (H1)",
+  h2: "Heading ## (H2)",
+  h3: "Heading ### (H3)",
+  h4: "Heading #### (H4)",
+  h5: "Heading ##### (H5)",
+  h6: "Heading ###### (H6)",
+  body: "Body",
+  blockquote: "Blockquote",
+  list: "List",
+  taskList: "Task list",
+  codeInline: "Inline code",
+  codeBlock: "Code block",
+  hr: "Horizontal rule",
+  table: "Table body",
+  tableHeader: "Table header",
+  callout: "Callout",
+  calloutTitle: "Callout title",
+  image: "Image",
+  link: "Link",
+  footnote: "Footnote",
+  embed: "Embed"
 };
 var ELEMENT_KEYS = Object.keys(ELEMENT_LABELS);
 var ELEMENT_GROUPS = [
-  { id: "headings", label: "\uC81C\uBAA9", keys: ["h1", "h2", "h3", "h4", "h5", "h6"] },
-  { id: "body", label: "\uBCF8\uBB38 \xB7 \uC778\uC6A9", keys: ["body", "blockquote"] },
-  { id: "lists", label: "\uB9AC\uC2A4\uD2B8", keys: ["list", "taskList"] },
-  { id: "code", label: "\uCF54\uB4DC", keys: ["codeInline", "codeBlock"] },
-  { id: "table", label: "\uD45C", keys: ["table", "tableHeader"] },
-  { id: "callout", label: "\uCF5C\uC544\uC6C3", keys: ["callout", "calloutTitle"] },
-  { id: "misc", label: "\uAE30\uD0C0", keys: ["hr", "image", "link", "footnote", "embed"] }
+  { id: "headings", label: "Headings", keys: ["h1", "h2", "h3", "h4", "h5", "h6"] },
+  { id: "body", label: "Body \xB7 quote", keys: ["body", "blockquote"] },
+  { id: "lists", label: "Lists", keys: ["list", "taskList"] },
+  { id: "code", label: "Code", keys: ["codeInline", "codeBlock"] },
+  { id: "table", label: "Tables", keys: ["table", "tableHeader"] },
+  { id: "callout", label: "Callouts", keys: ["callout", "calloutTitle"] },
+  { id: "misc", label: "Other", keys: ["hr", "image", "link", "footnote", "embed"] }
 ];
 var ELEMENT_PREVIEW_TEXT = {
-  h1: "\uC81C\uBAA9 \uC608\uC2DC (#)",
-  h2: "\uC81C\uBAA9 \uC608\uC2DC (##)",
-  h3: "\uC81C\uBAA9 \uC608\uC2DC (###)",
-  h4: "\uC81C\uBAA9 \uC608\uC2DC (####)",
-  h5: "\uC81C\uBAA9 \uC608\uC2DC (#####)",
-  h6: "\uC81C\uBAA9 \uC608\uC2DC (######)",
-  body: "\uBCF8\uBB38 \uB2E8\uB77D\uC774 \uC774\uB807\uAC8C \uBCF4\uC785\uB2C8\uB2E4. \uD589\uAC04\uACFC \uAE00\uC790 \uD06C\uAE30\uB97C \uD655\uC778\uD558\uC138\uC694.",
-  blockquote: "\uC778\uC6A9\uBB38\uC785\uB2C8\uB2E4. \uC67C\uCABD \uD14C\uB450\uB9AC\uC640 \uC0C9\uC744 \uD655\uC778\uD558\uC138\uC694.",
-  list: "\u2022 \uB9AC\uC2A4\uD2B8 \uD56D\uBAA9 \uC608\uC2DC",
-  taskList: "\u2611 \uCCB4\uD06C\uBC15\uC2A4 \uD56D\uBAA9 \uC608\uC2DC",
+  h1: "Heading sample (#)",
+  h2: "Heading sample (##)",
+  h3: "Heading sample (###)",
+  h4: "Heading sample (####)",
+  h5: "Heading sample (#####)",
+  h6: "Heading sample (######)",
+  body: "Body text looks like this. Check line height and font size.",
+  blockquote: "A blockquote sample. Check the left border and colors.",
+  list: "\u2022 List item sample",
+  taskList: "\u2611 Task list item sample",
   codeInline: "const x = 1",
   codeBlock: "function hello() {\n  return true;\n}",
   hr: "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
-  table: "\uD45C \uC140 \uD14D\uC2A4\uD2B8 \uC608\uC2DC",
-  tableHeader: "\uD45C \uD5E4\uB354 \uC608\uC2DC",
-  callout: "\uCF5C\uC544\uC6C3 \uBCF8\uBB38 \uC608\uC2DC\uC785\uB2C8\uB2E4.",
-  calloutTitle: "\uCF5C\uC544\uC6C3 \uC81C\uBAA9",
-  image: "[ \uC774\uBBF8\uC9C0 \uC815\uB82C \xB7 \uC5EC\uBC31 ]",
-  link: "\uB9C1\uD06C \uD14D\uC2A4\uD2B8 \uC608\uC2DC",
-  footnote: "\uAC01\uC8FC \uB0B4\uC6A9 \uC608\uC2DC\xB9",
-  embed: "\uC784\uBCA0\uB4DC \uBBF8\uB9AC\uBCF4\uAE30 \uC601\uC5ED"
+  table: "Table cell sample",
+  tableHeader: "Table header sample",
+  callout: "Callout body sample.",
+  calloutTitle: "Callout title",
+  image: "[ Image align \xB7 spacing ]",
+  link: "Link text sample",
+  footnote: "Footnote sample\xB9",
+  embed: "Embed preview area"
 };
 var ELEMENTS_WITH_BACKGROUND = [
   "blockquote",
@@ -1259,7 +1259,7 @@ var ELEMENTS_WITH_BACKGROUND = [
   "callout",
   "embed"
 ];
-var SETTINGS_VERSION = 2;
+var SETTINGS_VERSION = 3;
 
 // src/settings.ts
 var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
@@ -1285,17 +1285,17 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
     this.renderPageSection(containerEl);
     this.renderElementsSection(containerEl);
     const tip = containerEl.createDiv({ cls: "beautiful-pdf-tip" });
-    tip.createEl("strong", { text: "\uD398\uC774\uC9C0 \uB098\uB204\uAE30: " });
-    tip.appendText("\uB178\uD2B8\uC5D0 ");
+    tip.createEl("strong", { text: "Page break: " });
+    tip.appendText("Insert ");
     tip.createEl("code", { text: "%%pdf-pagebreak%%" });
-    tip.appendText(" \uB610\uB294 \uBA85\uB839\uC5B4 ");
+    tip.appendText(" in a note, or use the command ");
     tip.createEl("code", { text: "Insert page break" });
     tip.appendText(".");
   }
   /* ---------- Profiles ---------- */
   renderProfiles(containerEl) {
     const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-    section.createEl("h3", { text: "\uBB38\uC11C \uD504\uB85C\uD544" });
+    section.createEl("h3", { text: "Document profiles" });
     const chips = section.createDiv({ cls: "beautiful-pdf-profile-chips" });
     for (const p of this.plugin.settings.profiles) {
       const chip = chips.createEl("button", {
@@ -1318,24 +1318,24 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
       });
       b.onclick = fn;
     };
-    mkAction("\uC0C8 \uD504\uB85C\uD544", "", async () => {
+    mkAction("New profile", "", async () => {
       const profile2 = createBlankProfile(
-        `\uD504\uB85C\uD544 ${this.plugin.settings.profiles.length + 1}`
+        `Profile ${this.plugin.settings.profiles.length + 1}`
       );
       this.plugin.settings.profiles.push(profile2);
       this.plugin.settings.activeProfileId = profile2.id;
       await this.plugin.saveSettings();
       this.display();
     });
-    mkAction("\uBCF5\uC81C", "", async () => {
+    mkAction("Duplicate", "", async () => {
       const active = getActiveProfile(this.plugin.settings);
-      const copy = cloneProfile(active, `${active.name} \uBCF5\uC0AC`);
+      const copy = cloneProfile(active, `${active.name} copy`);
       this.plugin.settings.profiles.push(copy);
       this.plugin.settings.activeProfileId = copy.id;
       await this.plugin.saveSettings();
       this.display();
     });
-    mkAction("\uC0AD\uC81C", "is-danger", async () => {
+    mkAction("Delete", "is-danger", async () => {
       if (this.plugin.settings.profiles.length <= 1)
         return;
       const id = this.plugin.settings.activeProfileId;
@@ -1348,7 +1348,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
     });
     section.createEl("hr", { cls: "beautiful-pdf-divider" });
     const profile = getActiveProfile(this.plugin.settings);
-    new import_obsidian4.Setting(section).setName("\uD504\uB85C\uD544 \uC774\uB984").addText(
+    new import_obsidian4.Setting(section).setName("Profile name").addText(
       (text) => text.setValue(profile.name).onChange(async (v) => {
         profile.name = v.trim() || profile.name;
         await this.plugin.saveSettings();
@@ -1362,10 +1362,10 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
   renderPageSection(containerEl) {
     const page = getActiveProfile(this.plugin.settings).page;
     page.lineHeight = toLineHeightPercent(page.lineHeight);
-    const summary = `${page.pageSize} \xB7 \uC5EC\uBC31 ${page.marginTopMm}/${page.marginBottomMm}/${page.marginLeftMm}/${page.marginRightMm}mm`;
+    const summary = `${page.pageSize} \xB7 margins ${page.marginTopMm}/${page.marginBottomMm}/${page.marginLeftMm}/${page.marginRightMm}mm`;
     this.collapsible(
       containerEl,
-      "\uD398\uC774\uC9C0",
+      "Page",
       summary,
       this.ui.pageOpen,
       (open) => {
@@ -1374,14 +1374,14 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
       (body) => {
         var _a;
         const titleToggle = this.rowBox(body);
-        new import_obsidian4.Setting(titleToggle).setName("\uD30C\uC77C\uBA85\uC744 \uC81C\uBAA9\uC73C\uB85C \uC4F0\uAE30").addToggle(
+        new import_obsidian4.Setting(titleToggle).setName("Use filename as title").addToggle(
           (tg) => tg.setValue(page.useFilenameAsTitle).onChange(async (v) => {
             page.useFilenameAsTitle = v;
             await this.plugin.saveSettings();
           })
         );
         const sizeBox = this.rowBox(body);
-        new import_obsidian4.Setting(sizeBox).setName("\uC6A9\uC9C0 \uD06C\uAE30").addDropdown((dd) => {
+        new import_obsidian4.Setting(sizeBox).setName("Page size").addDropdown((dd) => {
           ["A4", "Letter", "Legal", "Custom"].forEach(
             (s) => dd.addOption(s, s)
           );
@@ -1393,58 +1393,58 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
         });
         if (page.pageSize === "Custom") {
           const customBox = this.rowBox(body);
-          this.numSetting(customBox, "\uB108\uBE44 (mm)", page.pageWidthMm, async (n) => {
+          this.numSetting(customBox, "Width (mm)", page.pageWidthMm, async (n) => {
             page.pageWidthMm = n;
           });
-          this.numSetting(customBox, "\uB192\uC774 (mm)", page.pageHeightMm, async (n) => {
+          this.numSetting(customBox, "Height (mm)", page.pageHeightMm, async (n) => {
             page.pageHeightMm = n;
           });
         }
         this.collapsible(
           body,
-          "\uC5EC\uBC31",
+          "Margins",
           `${page.marginTopMm} / ${page.marginBottomMm} / ${page.marginLeftMm} / ${page.marginRightMm} mm`,
           this.ui.marginsOpen,
           (o) => {
             this.ui.marginsOpen = o;
           },
           (inner) => {
-            this.numSetting(inner, "\uC704 (mm)", page.marginTopMm, async (n) => {
+            this.numSetting(inner, "Top (mm)", page.marginTopMm, async (n) => {
               page.marginTopMm = n;
             });
-            this.numSetting(inner, "\uC544\uB798 (mm)", page.marginBottomMm, async (n) => {
+            this.numSetting(inner, "Bottom (mm)", page.marginBottomMm, async (n) => {
               page.marginBottomMm = n;
             });
-            this.numSetting(inner, "\uC67C\uCABD (mm)", page.marginLeftMm, async (n) => {
+            this.numSetting(inner, "Left (mm)", page.marginLeftMm, async (n) => {
               page.marginLeftMm = n;
             });
-            this.numSetting(inner, "\uC624\uB978\uCABD (mm)", page.marginRightMm, async (n) => {
+            this.numSetting(inner, "Right (mm)", page.marginRightMm, async (n) => {
               page.marginRightMm = n;
             });
           },
           true
         );
         const pnLabel = (_a = {
-          none: "\uC5C6\uC74C",
-          "bottom-center": "\uD558\uB2E8 \uAC00\uC6B4\uB370",
-          "bottom-right": "\uD558\uB2E8 \uC624\uB978\uCABD",
-          "top-center": "\uC0C1\uB2E8 \uAC00\uC6B4\uB370"
+          none: "None",
+          "bottom-center": "Bottom center",
+          "bottom-right": "Bottom right",
+          "top-center": "Top center"
         }[page.pageNumber]) != null ? _a : page.pageNumber;
         this.collapsible(
           body,
-          "\uD398\uC774\uC9C0 \uBC88\uD638",
+          "Page numbers",
           pnLabel,
           this.ui.pageNumberOpen,
           (o) => {
             this.ui.pageNumberOpen = o;
           },
           (inner) => {
-            new import_obsidian4.Setting(inner).setName("\uC704\uCE58").addDropdown((dd) => {
+            new import_obsidian4.Setting(inner).setName("Position").addDropdown((dd) => {
               const opts = {
-                none: "\uC5C6\uC74C",
-                "bottom-center": "\uD558\uB2E8 \uAC00\uC6B4\uB370",
-                "bottom-right": "\uD558\uB2E8 \uC624\uB978\uCABD",
-                "top-center": "\uC0C1\uB2E8 \uAC00\uC6B4\uB370"
+                none: "None",
+                "bottom-center": "Bottom center",
+                "bottom-right": "Bottom right",
+                "top-center": "Top center"
               };
               for (const [k, label] of Object.entries(opts))
                 dd.addOption(k, label);
@@ -1454,7 +1454,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
                 this.display();
               });
             });
-            new import_obsidian4.Setting(inner).setName("\uD615\uC2DD").addText(
+            new import_obsidian4.Setting(inner).setName("Format").addText(
               (t) => t.setPlaceholder("{page} / {pages}").setValue(page.pageNumberFormat).onChange(async (v) => {
                 page.pageNumberFormat = v;
                 await this.plugin.saveSettings();
@@ -1464,25 +1464,25 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
           true
         );
         const hfSummary = [
-          page.headerText ? `\uBA38\uB9AC\uAE00(${page.headerAlign})` : null,
-          page.footerText ? `\uBC14\uB2E5\uAE00(${page.footerAlign})` : null
-        ].filter(Boolean).join(" \xB7 ") || "\uC5C6\uC74C";
+          page.headerText ? `Header (${page.headerAlign})` : null,
+          page.footerText ? `Footer (${page.footerAlign})` : null
+        ].filter(Boolean).join(" \xB7 ") || "None";
         this.collapsible(
           body,
-          "\uBA38\uB9AC\uAE00 \xB7 \uBC14\uB2E5\uAE00",
+          "Header \xB7 footer",
           hfSummary,
           this.ui.headerFooterOpen,
           (o) => {
             this.ui.headerFooterOpen = o;
           },
           (inner) => {
-            new import_obsidian4.Setting(inner).setName("\uBA38\uB9AC\uAE00 \uD14D\uC2A4\uD2B8").addText(
+            new import_obsidian4.Setting(inner).setName("Header text").addText(
               (t) => t.setValue(page.headerText).onChange(async (v) => {
                 page.headerText = v;
                 await this.plugin.saveSettings();
               })
             );
-            new import_obsidian4.Setting(inner).setName("\uBA38\uB9AC\uAE00 \uC815\uB82C").addDropdown((dd) => {
+            new import_obsidian4.Setting(inner).setName("Header align").addDropdown((dd) => {
               var _a2;
               this.addHfAlignOptions(dd);
               dd.setValue((_a2 = page.headerAlign) != null ? _a2 : "left").onChange(async (v) => {
@@ -1490,13 +1490,13 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
                 await this.plugin.saveSettings();
               });
             });
-            new import_obsidian4.Setting(inner).setName("\uBC14\uB2E5\uAE00 \uD14D\uC2A4\uD2B8").addText(
+            new import_obsidian4.Setting(inner).setName("Footer text").addText(
               (t) => t.setValue(page.footerText).onChange(async (v) => {
                 page.footerText = v;
                 await this.plugin.saveSettings();
               })
             );
-            new import_obsidian4.Setting(inner).setName("\uBC14\uB2E5\uAE00 \uC815\uB82C").addDropdown((dd) => {
+            new import_obsidian4.Setting(inner).setName("Footer align").addDropdown((dd) => {
               var _a2;
               this.addHfAlignOptions(dd);
               dd.setValue((_a2 = page.footerAlign) != null ? _a2 : "center").onChange(async (v) => {
@@ -1509,14 +1509,14 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
         );
         this.collapsible(
           body,
-          "\uAE30\uD0C0",
-          `\uD589\uAC04 ${page.lineHeight}% \xB7 \uBC30\uACBD ${page.printBackground ? "\uCF1C\uC9D0" : "\uAEBC\uC9D0"}`,
+          "More",
+          `Line height ${page.lineHeight}% \xB7 background ${page.printBackground ? "on" : "off"}`,
           this.ui.morePageOpen,
           (o) => {
             this.ui.morePageOpen = o;
           },
           (inner) => {
-            new import_obsidian4.Setting(inner).setName("\uAE30\uBCF8 \uD589\uAC04 (%)").addText(
+            new import_obsidian4.Setting(inner).setName("Default line height (%)").addText(
               (t) => t.setValue(String(page.lineHeight)).onChange(async (v) => {
                 const n = parseFloat(v);
                 if (!Number.isNaN(n) && n > 0) {
@@ -1525,7 +1525,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
                 }
               })
             );
-            new import_obsidian4.Setting(inner).setName("\uBC30\uACBD \uC778\uC1C4").addToggle(
+            new import_obsidian4.Setting(inner).setName("Print background").addToggle(
               (tg) => tg.setValue(page.printBackground).onChange(async (v) => {
                 page.printBackground = v;
                 await this.plugin.saveSettings();
@@ -1538,22 +1538,22 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
     );
   }
   addHfAlignOptions(dd) {
-    dd.addOption("left", "\uC67C\uCABD");
-    dd.addOption("center", "\uAC00\uC6B4\uB370");
-    dd.addOption("right", "\uC624\uB978\uCABD");
+    dd.addOption("left", "Left");
+    dd.addOption("center", "Center");
+    dd.addOption("right", "Right");
   }
   /* ---------- Markdown elements ---------- */
   renderElementsSection(containerEl) {
     var _a;
     const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-    section.createEl("h3", { text: "\uB9C8\uD06C\uB2E4\uC6B4 \uC694\uC18C" });
+    section.createEl("h3", { text: "Markdown elements" });
     const elements = getActiveProfile(this.plugin.settings).elements;
     for (const group of ELEMENT_GROUPS) {
       const open = (_a = this.ui.groupOpen[group.id]) != null ? _a : false;
       this.collapsible(
         section,
         group.label,
-        `${group.keys.length}\uAC1C \uC694\uC18C`,
+        `${group.keys.length} elements`,
         open,
         (o) => {
           this.ui.groupOpen[group.id] = o;
@@ -1592,7 +1592,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
     const editors = row.createDiv({ cls: "beautiful-pdf-el-editors" });
     const refreshPreview = () => this.paintPreview(preview, key, style);
     if (ELEMENTS_WITH_FRAME.includes(key)) {
-      new import_obsidian4.Setting(editors).setName("\uBC15\uC2A4 \uC2A4\uD0C0\uC77C").addDropdown((dd) => {
+      new import_obsidian4.Setting(editors).setName("Box style").addDropdown((dd) => {
         var _a2;
         for (const opt of FRAME_PRESET_OPTIONS) {
           dd.addOption(opt.id, opt.label);
@@ -1604,14 +1604,14 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
         });
       });
     }
-    new import_obsidian4.Setting(editors).setName("\uD3F0\uD2B8").addText(
+    new import_obsidian4.Setting(editors).setName("Font").addText(
       (t) => t.setValue(style.fontFamily).onChange(async (v) => {
         style.fontFamily = v;
         await this.plugin.saveSettings();
         refreshPreview();
       })
     );
-    new import_obsidian4.Setting(editors).setName("\uD06C\uAE30 (pt)").addText(
+    new import_obsidian4.Setting(editors).setName("Size (pt)").addText(
       (t) => t.setValue(String(style.fontSize)).onChange(async (v) => {
         const n = parseFloat(v);
         if (!Number.isNaN(n)) {
@@ -1621,7 +1621,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
         }
       })
     );
-    new import_obsidian4.Setting(editors).setName("\uAD75\uAE30").addDropdown((dd) => {
+    new import_obsidian4.Setting(editors).setName("Weight").addDropdown((dd) => {
       ["normal", "bold", "300", "500", "600", "700"].forEach(
         (w) => dd.addOption(w, w)
       );
@@ -1631,7 +1631,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
         refreshPreview();
       });
     });
-    new import_obsidian4.Setting(editors).setName("\uC815\uB82C").addDropdown((dd) => {
+    new import_obsidian4.Setting(editors).setName("Align").addDropdown((dd) => {
       ["left", "center", "right", "justify"].forEach(
         (a) => dd.addOption(a, a)
       );
@@ -1641,7 +1641,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
         refreshPreview();
       });
     });
-    this.addColorSetting(editors, "\uAE00\uC790\uC0C9", style.color, async (v) => {
+    this.addColorSetting(editors, "Text color", style.color, async (v) => {
       style.color = v;
       await this.plugin.saveSettings();
       refreshPreview();
@@ -1649,7 +1649,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
     if (ELEMENTS_WITH_BACKGROUND.includes(key)) {
       this.addColorSetting(
         editors,
-        "\uBC30\uACBD\uC0C9",
+        "Background",
         (_a = style.backgroundColor) != null ? _a : "#ffffff",
         async (v) => {
           style.backgroundColor = v;
@@ -1658,7 +1658,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
         }
       );
     }
-    new import_obsidian4.Setting(editors).setName("\uC704 \uC5EC\uBC31 (pt)").addText(
+    new import_obsidian4.Setting(editors).setName("Margin top (pt)").addText(
       (t) => t.setValue(String(style.marginTop)).onChange(async (v) => {
         const n = parseFloat(v);
         if (!Number.isNaN(n)) {
@@ -1668,7 +1668,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
         }
       })
     );
-    new import_obsidian4.Setting(editors).setName("\uC544\uB798 \uC5EC\uBC31 (pt)").addText(
+    new import_obsidian4.Setting(editors).setName("Margin bottom (pt)").addText(
       (t) => t.setValue(String(style.marginBottom)).onChange(async (v) => {
         const n = parseFloat(v);
         if (!Number.isNaN(n)) {
@@ -1679,7 +1679,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
       })
     );
     if (style.lineHeight != null) {
-      new import_obsidian4.Setting(editors).setName("\uD589\uAC04 (%)").addText(
+      new import_obsidian4.Setting(editors).setName("Line height (%)").addText(
         (t) => t.setValue(String(style.lineHeight)).onChange(async (v) => {
           const n = parseFloat(v);
           if (!Number.isNaN(n) && n > 0) {
@@ -1710,7 +1710,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
     });
     const colorInput = setting.controlEl.createEl("input", {
       cls: "beautiful-pdf-color-picker",
-      attr: { type: "color", value: initial, title: "\uC0C9 \uC120\uD0DD" }
+      attr: { type: "color", value: initial, title: "Pick color" }
     });
     colorInput.addEventListener("input", async () => {
       const v = colorInput.value;
@@ -1825,7 +1825,7 @@ var BeautifulPdfPlugin = class extends import_obsidian5.Plugin {
   async onload() {
     await this.loadSettings();
     this.addSettingTab(new BeautifulPdfSettingTab(this.app, this));
-    this.addRibbonIcon("file-text", "Beautiful PDF \uBBF8\uB9AC\uBCF4\uAE30", () => {
+    this.addRibbonIcon("file-text", "Beautiful PDF preview", () => {
       void this.openPreview();
     });
     this.addCommand({
@@ -1902,7 +1902,7 @@ ${PAGE_BREAK_SNIPPET}` : PAGE_BREAK_SNIPPET;
   async openPreview(file) {
     const target = file != null ? file : this.getActiveMarkdownFile();
     if (!target) {
-      new import_obsidian5.Notice("\uB9C8\uD06C\uB2E4\uC6B4 \uB178\uD2B8\uB97C \uC5F4\uC5B4 \uC8FC\uC138\uC694.");
+      new import_obsidian5.Notice("Open a Markdown note first.");
       return;
     }
     new PreviewModal(this.app, this, target).open();

@@ -63,10 +63,10 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		this.renderElementsSection(containerEl);
 
 		const tip = containerEl.createDiv({ cls: "beautiful-pdf-tip" });
-		tip.createEl("strong", { text: "페이지 나누기: " });
-		tip.appendText("노트에 ");
+		tip.createEl("strong", { text: "Page break: " });
+		tip.appendText("Insert ");
 		tip.createEl("code", { text: "%%pdf-pagebreak%%" });
-		tip.appendText(" 또는 명령어 ");
+		tip.appendText(" in a note, or use the command ");
 		tip.createEl("code", { text: "Insert page break" });
 		tip.appendText(".");
 	}
@@ -75,7 +75,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 	private renderProfiles(containerEl: HTMLElement): void {
 		const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-		section.createEl("h3", { text: "문서 프로필" });
+		section.createEl("h3", { text: "Document profiles" });
 
 		const chips = section.createDiv({ cls: "beautiful-pdf-profile-chips" });
 		for (const p of this.plugin.settings.profiles) {
@@ -103,24 +103,24 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			b.onclick = fn;
 		};
 
-		mkAction("새 프로필", "", async () => {
+		mkAction("New profile", "", async () => {
 			const profile = createBlankProfile(
-				`프로필 ${this.plugin.settings.profiles.length + 1}`,
+				`Profile ${this.plugin.settings.profiles.length + 1}`,
 			);
 			this.plugin.settings.profiles.push(profile);
 			this.plugin.settings.activeProfileId = profile.id;
 			await this.plugin.saveSettings();
 			this.display();
 		});
-		mkAction("복제", "", async () => {
+		mkAction("Duplicate", "", async () => {
 			const active = getActiveProfile(this.plugin.settings);
-			const copy = cloneProfile(active, `${active.name} 복사`);
+			const copy = cloneProfile(active, `${active.name} copy`);
 			this.plugin.settings.profiles.push(copy);
 			this.plugin.settings.activeProfileId = copy.id;
 			await this.plugin.saveSettings();
 			this.display();
 		});
-		mkAction("삭제", "is-danger", async () => {
+		mkAction("Delete", "is-danger", async () => {
 			if (this.plugin.settings.profiles.length <= 1) return;
 			const id = this.plugin.settings.activeProfileId;
 			this.plugin.settings.profiles = this.plugin.settings.profiles.filter(
@@ -135,7 +135,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 		const profile = getActiveProfile(this.plugin.settings);
 		new Setting(section)
-			.setName("프로필 이름")
+			.setName("Profile name")
 			.addText((text) =>
 				text.setValue(profile.name).onChange(async (v) => {
 					profile.name = v.trim() || profile.name;
@@ -151,11 +151,11 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 	private renderPageSection(containerEl: HTMLElement): void {
 		const page = getActiveProfile(this.plugin.settings).page;
 		page.lineHeight = toLineHeightPercent(page.lineHeight);
-		const summary = `${page.pageSize} · 여백 ${page.marginTopMm}/${page.marginBottomMm}/${page.marginLeftMm}/${page.marginRightMm}mm`;
+		const summary = `${page.pageSize} · margins ${page.marginTopMm}/${page.marginBottomMm}/${page.marginLeftMm}/${page.marginRightMm}mm`;
 
 		this.collapsible(
 			containerEl,
-			"페이지",
+			"Page",
 			summary,
 			this.ui.pageOpen,
 			(open) => {
@@ -164,7 +164,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			(body) => {
 				const titleToggle = this.rowBox(body);
 				new Setting(titleToggle)
-					.setName("파일명을 제목으로 쓰기")
+					.setName("Use filename as title")
 					.addToggle((tg) =>
 						tg.setValue(page.useFilenameAsTitle).onChange(async (v) => {
 							page.useFilenameAsTitle = v;
@@ -174,7 +174,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 				const sizeBox = this.rowBox(body);
 				new Setting(sizeBox)
-					.setName("용지 크기")
+					.setName("Page size")
 					.addDropdown((dd) => {
 						(["A4", "Letter", "Legal", "Custom"] as PageSize[]).forEach((s) =>
 							dd.addOption(s, s),
@@ -188,33 +188,33 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 				if (page.pageSize === "Custom") {
 					const customBox = this.rowBox(body);
-					this.numSetting(customBox, "너비 (mm)", page.pageWidthMm, async (n) => {
+					this.numSetting(customBox, "Width (mm)", page.pageWidthMm, async (n) => {
 						page.pageWidthMm = n;
 					});
-					this.numSetting(customBox, "높이 (mm)", page.pageHeightMm, async (n) => {
+					this.numSetting(customBox, "Height (mm)", page.pageHeightMm, async (n) => {
 						page.pageHeightMm = n;
 					});
 				}
 
 				this.collapsible(
 					body,
-					"여백",
+					"Margins",
 					`${page.marginTopMm} / ${page.marginBottomMm} / ${page.marginLeftMm} / ${page.marginRightMm} mm`,
 					this.ui.marginsOpen,
 					(o) => {
 						this.ui.marginsOpen = o;
 					},
 					(inner) => {
-						this.numSetting(inner, "위 (mm)", page.marginTopMm, async (n) => {
+						this.numSetting(inner, "Top (mm)", page.marginTopMm, async (n) => {
 							page.marginTopMm = n;
 						});
-						this.numSetting(inner, "아래 (mm)", page.marginBottomMm, async (n) => {
+						this.numSetting(inner, "Bottom (mm)", page.marginBottomMm, async (n) => {
 							page.marginBottomMm = n;
 						});
-						this.numSetting(inner, "왼쪽 (mm)", page.marginLeftMm, async (n) => {
+						this.numSetting(inner, "Left (mm)", page.marginLeftMm, async (n) => {
 							page.marginLeftMm = n;
 						});
-						this.numSetting(inner, "오른쪽 (mm)", page.marginRightMm, async (n) => {
+						this.numSetting(inner, "Right (mm)", page.marginRightMm, async (n) => {
 							page.marginRightMm = n;
 						});
 					},
@@ -224,16 +224,16 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 				const pnLabel =
 					(
 						{
-							none: "없음",
-							"bottom-center": "하단 가운데",
-							"bottom-right": "하단 오른쪽",
-							"top-center": "상단 가운데",
+							none: "None",
+							"bottom-center": "Bottom center",
+							"bottom-right": "Bottom right",
+							"top-center": "Top center",
 						} as Record<PageNumberPos, string>
 					)[page.pageNumber] ?? page.pageNumber;
 
 				this.collapsible(
 					body,
-					"페이지 번호",
+					"Page numbers",
 					pnLabel,
 					this.ui.pageNumberOpen,
 					(o) => {
@@ -241,13 +241,13 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 					},
 					(inner) => {
 						new Setting(inner)
-							.setName("위치")
+							.setName("Position")
 							.addDropdown((dd) => {
 								const opts: Record<PageNumberPos, string> = {
-									none: "없음",
-									"bottom-center": "하단 가운데",
-									"bottom-right": "하단 오른쪽",
-									"top-center": "상단 가운데",
+									none: "None",
+									"bottom-center": "Bottom center",
+									"bottom-right": "Bottom right",
+									"top-center": "Top center",
 								};
 								for (const [k, label] of Object.entries(opts))
 									dd.addOption(k, label);
@@ -258,7 +258,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 								});
 							});
 						new Setting(inner)
-							.setName("형식")
+							.setName("Format")
 							.addText((t) =>
 								t
 									.setPlaceholder("{page} / {pages}")
@@ -274,15 +274,15 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 				const hfSummary =
 					[
-						page.headerText ? `머리글(${page.headerAlign})` : null,
-						page.footerText ? `바닥글(${page.footerAlign})` : null,
+						page.headerText ? `Header (${page.headerAlign})` : null,
+						page.footerText ? `Footer (${page.footerAlign})` : null,
 					]
 						.filter(Boolean)
-						.join(" · ") || "없음";
+						.join(" · ") || "None";
 
 				this.collapsible(
 					body,
-					"머리글 · 바닥글",
+					"Header · footer",
 					hfSummary,
 					this.ui.headerFooterOpen,
 					(o) => {
@@ -290,7 +290,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 					},
 					(inner) => {
 						new Setting(inner)
-							.setName("머리글 텍스트")
+							.setName("Header text")
 							.addText((t) =>
 								t.setValue(page.headerText).onChange(async (v) => {
 									page.headerText = v;
@@ -298,7 +298,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 								}),
 							);
 						new Setting(inner)
-							.setName("머리글 정렬")
+							.setName("Header align")
 							.addDropdown((dd) => {
 								this.addHfAlignOptions(dd);
 								dd.setValue(page.headerAlign ?? "left").onChange(async (v) => {
@@ -307,7 +307,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 								});
 							});
 						new Setting(inner)
-							.setName("바닥글 텍스트")
+							.setName("Footer text")
 							.addText((t) =>
 								t.setValue(page.footerText).onChange(async (v) => {
 									page.footerText = v;
@@ -315,7 +315,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 								}),
 							);
 						new Setting(inner)
-							.setName("바닥글 정렬")
+							.setName("Footer align")
 							.addDropdown((dd) => {
 								this.addHfAlignOptions(dd);
 								dd.setValue(page.footerAlign ?? "center").onChange(async (v) => {
@@ -329,15 +329,15 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 				this.collapsible(
 					body,
-					"기타",
-					`행간 ${page.lineHeight}% · 배경 ${page.printBackground ? "켜짐" : "꺼짐"}`,
+					"More",
+					`Line height ${page.lineHeight}% · background ${page.printBackground ? "on" : "off"}`,
 					this.ui.morePageOpen,
 					(o) => {
 						this.ui.morePageOpen = o;
 					},
 					(inner) => {
 						new Setting(inner)
-							.setName("기본 행간 (%)")
+							.setName("Default line height (%)")
 							.addText((t) =>
 								t.setValue(String(page.lineHeight)).onChange(async (v) => {
 									const n = parseFloat(v);
@@ -348,7 +348,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 								}),
 							);
 						new Setting(inner)
-							.setName("배경 인쇄")
+							.setName("Print background")
 							.addToggle((tg) =>
 								tg.setValue(page.printBackground).onChange(async (v) => {
 									page.printBackground = v;
@@ -365,16 +365,16 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 	private addHfAlignOptions(dd: {
 		addOption: (v: string, d: string) => unknown;
 	}): void {
-		dd.addOption("left", "왼쪽");
-		dd.addOption("center", "가운데");
-		dd.addOption("right", "오른쪽");
+		dd.addOption("left", "Left");
+		dd.addOption("center", "Center");
+		dd.addOption("right", "Right");
 	}
 
 	/* ---------- Markdown elements ---------- */
 
 	private renderElementsSection(containerEl: HTMLElement): void {
 		const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-		section.createEl("h3", { text: "마크다운 요소" });
+		section.createEl("h3", { text: "Markdown elements" });
 
 		const elements = getActiveProfile(this.plugin.settings).elements;
 
@@ -383,7 +383,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			this.collapsible(
 				section,
 				group.label,
-				`${group.keys.length}개 요소`,
+				`${group.keys.length} elements`,
 				open,
 				(o) => {
 					this.ui.groupOpen[group.id] = o;
@@ -433,7 +433,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 		if (ELEMENTS_WITH_FRAME.includes(key)) {
 			new Setting(editors)
-				.setName("박스 스타일")
+				.setName("Box style")
 				.addDropdown((dd) => {
 					for (const opt of FRAME_PRESET_OPTIONS) {
 						dd.addOption(opt.id, opt.label);
@@ -447,7 +447,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		}
 
 		new Setting(editors)
-			.setName("폰트")
+			.setName("Font")
 			.addText((t) =>
 				t.setValue(style.fontFamily).onChange(async (v) => {
 					style.fontFamily = v;
@@ -457,7 +457,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(editors)
-			.setName("크기 (pt)")
+			.setName("Size (pt)")
 			.addText((t) =>
 				t.setValue(String(style.fontSize)).onChange(async (v) => {
 					const n = parseFloat(v);
@@ -470,7 +470,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(editors)
-			.setName("굵기")
+			.setName("Weight")
 			.addDropdown((dd) => {
 				(["normal", "bold", "300", "500", "600", "700"] as FontWeight[]).forEach(
 					(w) => dd.addOption(w, w),
@@ -483,7 +483,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(editors)
-			.setName("정렬")
+			.setName("Align")
 			.addDropdown((dd) => {
 				(["left", "center", "right", "justify"] as TextAlign[]).forEach((a) =>
 					dd.addOption(a, a),
@@ -495,7 +495,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 				});
 			});
 
-		this.addColorSetting(editors, "글자색", style.color, async (v) => {
+		this.addColorSetting(editors, "Text color", style.color, async (v) => {
 			style.color = v;
 			await this.plugin.saveSettings();
 			refreshPreview();
@@ -504,7 +504,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		if (ELEMENTS_WITH_BACKGROUND.includes(key)) {
 			this.addColorSetting(
 				editors,
-				"배경색",
+				"Background",
 				style.backgroundColor ?? "#ffffff",
 				async (v) => {
 					style.backgroundColor = v;
@@ -515,7 +515,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		}
 
 		new Setting(editors)
-			.setName("위 여백 (pt)")
+			.setName("Margin top (pt)")
 			.addText((t) =>
 				t.setValue(String(style.marginTop)).onChange(async (v) => {
 					const n = parseFloat(v);
@@ -528,7 +528,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(editors)
-			.setName("아래 여백 (pt)")
+			.setName("Margin bottom (pt)")
 			.addText((t) =>
 				t.setValue(String(style.marginBottom)).onChange(async (v) => {
 					const n = parseFloat(v);
@@ -542,7 +542,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 		if (style.lineHeight != null) {
 			new Setting(editors)
-				.setName("행간 (%)")
+				.setName("Line height (%)")
 				.addText((t) =>
 					t.setValue(String(style.lineHeight)).onChange(async (v) => {
 						const n = parseFloat(v);
@@ -581,7 +581,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 		const colorInput = setting.controlEl.createEl("input", {
 			cls: "beautiful-pdf-color-picker",
-			attr: { type: "color", value: initial, title: "색 선택" },
+			attr: { type: "color", value: initial, title: "Pick color" },
 		});
 		colorInput.addEventListener("input", async () => {
 			const v = colorInput.value;

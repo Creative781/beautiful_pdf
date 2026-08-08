@@ -35,7 +35,7 @@ function getElectron(): {
 	}
 	if (!remote?.dialog) {
 		throw new Error(
-			"Electron remote API를 사용할 수 없습니다. Obsidian 데스크톱에서만 동작합니다.",
+			"Electron remote API is unavailable. Beautiful PDF works on Obsidian desktop only.",
 		);
 	}
 	return { remote, fs };
@@ -63,7 +63,7 @@ export async function exportPdfToFile(
 	profile: Profile,
 	openAfter = true,
 ): Promise<string | null> {
-	const notice = new Notice("Beautiful PDF: 생성하는 중…", 0);
+	const notice = new Notice("Beautiful PDF: generating…", 0);
 	try {
 		const { data, title } = await generatePdf(app, file, profile);
 		const { remote, fs } = getElectron();
@@ -79,7 +79,7 @@ export async function exportPdfToFile(
 		}
 		await fs.promises.writeFile(result.filePath, data);
 		notice.hide();
-		new Notice("Beautiful PDF: 저장 완료");
+		new Notice("Beautiful PDF: saved");
 		if (openAfter) {
 			await remote.shell.openPath(result.filePath);
 		}
@@ -87,7 +87,7 @@ export async function exportPdfToFile(
 	} catch (err) {
 		notice.hide();
 		console.error(err);
-		new Notice(`Beautiful PDF 오류: ${String(err)}`);
+		new Notice(`Beautiful PDF error: ${String(err)}`);
 		return null;
 	}
 }

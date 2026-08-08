@@ -234,7 +234,7 @@ export function createReportProfile(): Profile {
 	elements.embed.framePreset = "accent-bar";
 	return {
 		id: "report",
-		name: "보고서",
+		name: "Report",
 		page: basePage({
 			marginTopMm: 28,
 			marginBottomMm: 24,
@@ -288,7 +288,7 @@ export function createLifeProfile(): Profile {
 	elements.embed.framePreset = "soft-fill";
 	return {
 		id: "life",
-		name: "생활문서",
+		name: "Everyday",
 		page: basePage({
 			marginTopMm: 14,
 			marginBottomMm: 14,
@@ -349,7 +349,7 @@ export function createPlanProfile(): Profile {
 	elements.footnote.fontSize = 8;
 	return {
 		id: "plan",
-		name: "기획안",
+		name: "Proposal",
 		page: basePage({
 			marginTopMm: 18,
 			marginBottomMm: 16,
@@ -359,7 +359,7 @@ export function createPlanProfile(): Profile {
 			pageNumber: "top-center",
 			pageNumberFormat: "{page} / {pages}",
 			useFilenameAsTitle: true,
-			headerText: "기획안",
+			headerText: "Proposal",
 			headerAlign: "right",
 			footerText: "",
 		}),
@@ -374,7 +374,7 @@ export function createSampleProfiles(): Profile[] {
 export function createDefaultSettings(): BeautifulPdfSettings {
 	const profiles = createSampleProfiles();
 	return {
-		settingsVersion: 2,
+		settingsVersion: 3,
 		activeProfileId: profiles[0].id,
 		profiles,
 	};
