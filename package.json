@@ -1,6 +1,6 @@
 {
 	"name": "beautiful-pdf",
-	"version": "1.0.9",
+	"version": "1.1.0",
 	"description": "Export Markdown notes to styled PDFs with element-level style profiles, page settings, and PDF preview.",
 	"main": "main.js",
 	"scripts": {

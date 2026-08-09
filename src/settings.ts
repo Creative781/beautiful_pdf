@@ -409,8 +409,8 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 	private renderSpecialSection(containerEl: HTMLElement): void {
 		const profile = getActiveProfile(this.plugin.settings);
 		const special = profile.special;
-		const summary = special.numberHeadings
-			? `Numbered H${special.numberMinLevel}–H${special.numberMaxLevel}`
+		const summary = special.styleOrderedListsAsHeadings
+			? `Ordered lists → H${special.orderedListHeadingLevel1}/H${special.orderedListHeadingLevel2}/H${special.orderedListHeadingLevel3}`
 			: "Off";
 
 		this.collapsible(
@@ -424,69 +424,44 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			(body) => {
 				const tip = body.createDiv({ cls: "beautiful-pdf-tip" });
 				tip.appendText(
-					"PDF-only extras. Numbered headings keep normal # / ## markup in the note; numbers are added only in the export.",
+					"PDF-only. Write normal numbered lists (1. 2. 3.) in the note — Obsidian keeps auto-numbering. In the PDF those items use a heading style; # headings and body text stay as usual.",
 				);
 
 				const enableBox = this.rowBox(body);
 				new Setting(enableBox)
-					.setName("Number headings")
-					.setDesc("Prefix headings with 1 / 1.1 / 1.1.1 in the PDF")
+					.setName("Style numbered lists as headings")
+					.setDesc("Apply heading look to ordered-list items in the PDF only")
 					.addToggle((tg) =>
-						tg.setValue(special.numberHeadings).onChange((v) => {
+						tg.setValue(special.styleOrderedListsAsHeadings).onChange((v) => {
 							void (async () => {
-								special.numberHeadings = v;
+								special.styleOrderedListsAsHeadings = v;
 								await this.plugin.saveSettings();
 								this.display();
 							})();
 						}),
 					);
 
-				if (!special.numberHeadings) return;
+				if (!special.styleOrderedListsAsHeadings) return;
 
-				const rangeBox = this.rowBox(body);
-				new Setting(rangeBox)
-					.setName("From level")
-					.addDropdown((dd) => {
-						for (let i = 1; i <= 6; i++) dd.addOption(String(i), `H${i}`);
-						dd.setValue(String(special.numberMinLevel)).onChange((v) => {
+				const levelBox = this.rowBox(body);
+				const addLevel = (
+					name: string,
+					key: "orderedListHeadingLevel1" | "orderedListHeadingLevel2" | "orderedListHeadingLevel3",
+				) => {
+					new Setting(levelBox).setName(name).addDropdown((dd) => {
+						for (let i = 1; i <= 6; i++) dd.addOption(String(i), `H${i} style`);
+						dd.setValue(String(special[key])).onChange((v) => {
 							void (async () => {
-								special.numberMinLevel = Number(v);
-								if (special.numberMinLevel > special.numberMaxLevel) {
-									special.numberMaxLevel = special.numberMinLevel;
-								}
+								special[key] = Number(v);
 								await this.plugin.saveSettings();
 								this.display();
 							})();
 						});
 					});
-				new Setting(rangeBox)
-					.setName("To level")
-					.addDropdown((dd) => {
-						for (let i = 1; i <= 6; i++) dd.addOption(String(i), `H${i}`);
-						dd.setValue(String(special.numberMaxLevel)).onChange((v) => {
-							void (async () => {
-								special.numberMaxLevel = Number(v);
-								if (special.numberMaxLevel < special.numberMinLevel) {
-									special.numberMinLevel = special.numberMaxLevel;
-								}
-								await this.plugin.saveSettings();
-								this.display();
-							})();
-						});
-					});
-
-				const skipBox = this.rowBox(body);
-				new Setting(skipBox)
-					.setName("Skip filename title")
-					.setDesc("Do not number the title injected from the file name")
-					.addToggle((tg) =>
-						tg.setValue(special.skipFilenameTitle).onChange((v) => {
-							void (async () => {
-								special.skipFilenameTitle = v;
-								await this.plugin.saveSettings();
-							})();
-						}),
-					);
+				};
+				addLevel("Top-level 1. 2. 3.", "orderedListHeadingLevel1");
+				addLevel("Nested level 2", "orderedListHeadingLevel2");
+				addLevel("Nested level 3", "orderedListHeadingLevel3");
 			},
 		);
 	}

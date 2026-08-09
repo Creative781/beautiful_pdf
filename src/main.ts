@@ -162,11 +162,9 @@ function mergeProfile(raw: Profile, fallback: ElementStyles): Profile {
 	const page = { ...defaultPage, ...raw.page };
 	page.lineHeight = toLineHeightPercent(page.lineHeight, defaultPage.lineHeight);
 	const special = createDefaultSpecialOptions(raw.special);
-	special.numberMinLevel = clampLevel(special.numberMinLevel, 1);
-	special.numberMaxLevel = clampLevel(special.numberMaxLevel, 6);
-	if (special.numberMinLevel > special.numberMaxLevel) {
-		special.numberMaxLevel = special.numberMinLevel;
-	}
+	special.orderedListHeadingLevel1 = clampLevel(special.orderedListHeadingLevel1, 2);
+	special.orderedListHeadingLevel2 = clampLevel(special.orderedListHeadingLevel2, 3);
+	special.orderedListHeadingLevel3 = clampLevel(special.orderedListHeadingLevel3, 4);
 	return {
 		id: raw.id,
 		name: raw.name,

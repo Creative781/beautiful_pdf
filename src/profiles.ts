@@ -367,7 +367,7 @@ export function createPlanProfile(): Profile {
 			footerText: "",
 		}),
 		elements,
-		special: createDefaultSpecialOptions({ numberHeadings: true, numberMinLevel: 2 }),
+		special: createDefaultSpecialOptions({ styleOrderedListsAsHeadings: true }),
 	};
 }
 

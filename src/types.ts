@@ -87,14 +87,17 @@ export interface PageSettings {
 
 /** PDF-only extras that are not plain Markdown element styles. */
 export interface SpecialOptions {
-	/** Auto-number headings in the exported PDF (1 / 1.1 / 1.1.1). */
-	numberHeadings: boolean;
-	/** First heading level included in numbering (1 = H1 … 6 = H6). */
-	numberMinLevel: number;
-	/** Last heading level included in numbering. */
-	numberMaxLevel: number;
-	/** Do not number the filename title (`h1.__title__`). */
-	skipFilenameTitle: boolean;
+	/**
+	 * Keep Markdown ordered lists (`1. …`) in the note, but in the PDF render
+	 * those list items with a heading style (numbers stay; # headings stay normal).
+	 */
+	styleOrderedListsAsHeadings: boolean;
+	/** Heading style (1=H1 … 6=H6) for top-level `ol > li`. */
+	orderedListHeadingLevel1: number;
+	/** Heading style for second-level nested `ol ol > li`. */
+	orderedListHeadingLevel2: number;
+	/** Heading style for third-level nested `ol ol ol > li`. */
+	orderedListHeadingLevel3: number;
 }
 
 export interface Profile {
@@ -109,10 +112,10 @@ export function createDefaultSpecialOptions(
 	overrides: Partial<SpecialOptions> = {},
 ): SpecialOptions {
 	return {
-		numberHeadings: false,
-		numberMinLevel: 1,
-		numberMaxLevel: 6,
-		skipFilenameTitle: true,
+		styleOrderedListsAsHeadings: false,
+		orderedListHeadingLevel1: 2,
+		orderedListHeadingLevel2: 3,
+		orderedListHeadingLevel3: 4,
 		...overrides,
 	};
 }

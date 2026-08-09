@@ -187,7 +187,7 @@ p { ${inline(e.body)} }
   parts.push(rule("h4", e.h4));
   parts.push(rule("h5", e.h5));
   parts.push(rule("h6", e.h6));
-  parts.push(numberedHeadingCss(profile.special));
+  parts.push(orderedListAsHeadingCss(profile));
   parts.push(rule("blockquote", e.blockquote, frameStyleExtras("blockquote", e.blockquote)));
   parts.push(rule("ul, ol", e.list, ["padding-left: 1.4em"]));
   parts.push(rule("li", e.list, [
@@ -372,42 +372,43 @@ function inline(style) {
     decls.push(`line-height: ${lineHeightCss(style.lineHeight)}`);
   return decls.join("; ") + ";";
 }
-function numberedHeadingCss(special) {
-  if (!(special == null ? void 0 : special.numberHeadings))
+function orderedListAsHeadingCss(profile) {
+  var _a;
+  const special = profile.special;
+  if (!(special == null ? void 0 : special.styleOrderedListsAsHeadings))
     return "";
-  const min = Math.min(6, Math.max(1, special.numberMinLevel || 1));
-  const max = Math.min(6, Math.max(min, special.numberMaxLevel || 6));
-  const skipTitle = special.skipFilenameTitle !== false;
+  const e = profile.elements;
+  const levels = [
+    special.orderedListHeadingLevel1,
+    special.orderedListHeadingLevel2,
+    special.orderedListHeadingLevel3
+  ].map((n) => Math.min(6, Math.max(1, Math.round(n || 2))));
+  const selectors = ["ol", "ol ol", "ol ol ol"];
   const lines = [
-    `.markdown-preview-view, .markdown-rendered {`,
-    `  counter-reset: bpf-h1 bpf-h2 bpf-h3 bpf-h4 bpf-h5 bpf-h6;`,
+    `.markdown-preview-view ol, .markdown-rendered ol {`,
+    `  list-style-type: decimal;`,
+    `  list-style-position: outside;`,
     `}`
   ];
-  for (let level = 1; level <= 6; level++) {
-    const sel = level === 1 && skipTitle ? `h1:not(.__title__)` : `h${level}`;
-    const deeper = Array.from({ length: 6 - level }, (_, i) => `bpf-h${level + i + 1}`).join(
-      " "
-    );
-    lines.push(`${sel} {`);
-    if (level >= min && level <= max) {
-      lines.push(`  counter-increment: bpf-h${level};`);
-    }
-    if (deeper) {
-      lines.push(`  counter-reset: ${deeper};`);
-    }
+  for (let depth = 0; depth < 3; depth++) {
+    const style = e[`h${levels[depth]}`];
+    const olSel = selectors[depth];
+    const liSel = `${olSel} > li`;
+    lines.push(rule(liSel, style, [
+      "list-style: inherit",
+      `padding-left: ${(_a = style.paddingLeft) != null ? _a : 0}pt`
+    ]));
+    lines.push(`${liSel} > p:first-child {`);
+    lines.push(`  ${inline(style)}`);
     lines.push(`}`);
-    if (level >= min && level <= max) {
-      const parts = [];
-      for (let i = min; i <= level; i++) {
-        parts.push(`counter(bpf-h${i})`);
-      }
-      const content = parts.map((p, idx) => idx === 0 ? p : `"." ${p}`).join(" ");
-      lines.push(`${sel}::before {`);
-      lines.push(`  content: ${content} ".\\00a0";`);
-      lines.push(`  font: inherit;`);
-      lines.push(`  color: inherit;`);
-      lines.push(`}`);
-    }
+    lines.push(`${liSel} > p:not(:first-child) {`);
+    lines.push(`  ${inline(e.body)}`);
+    lines.push(`}`);
+    lines.push(`${liSel} > ul {`);
+    lines.push(`  font-size: ${e.list.fontSize}pt;`);
+    lines.push(`  font-weight: ${e.list.fontWeight};`);
+    lines.push(`  color: ${e.list.color};`);
+    lines.push(`}`);
   }
   return lines.join("\n");
 }
@@ -829,10 +830,10 @@ var ELEMENTS_WITH_FRAME = [
 ];
 function createDefaultSpecialOptions(overrides = {}) {
   return {
-    numberHeadings: false,
-    numberMinLevel: 1,
-    numberMaxLevel: 6,
-    skipFilenameTitle: true,
+    styleOrderedListsAsHeadings: false,
+    orderedListHeadingLevel1: 2,
+    orderedListHeadingLevel2: 3,
+    orderedListHeadingLevel3: 4,
     ...overrides
   };
 }
@@ -1249,7 +1250,7 @@ function createPlanProfile() {
       footerText: ""
     }),
     elements,
-    special: createDefaultSpecialOptions({ numberHeadings: true, numberMinLevel: 2 })
+    special: createDefaultSpecialOptions({ styleOrderedListsAsHeadings: true })
   };
 }
 function createSampleProfiles() {
@@ -1975,7 +1976,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
   renderSpecialSection(containerEl) {
     const profile = getActiveProfile(this.plugin.settings);
     const special = profile.special;
-    const summary = special.numberHeadings ? `Numbered H${special.numberMinLevel}\u2013H${special.numberMaxLevel}` : "Off";
+    const summary = special.styleOrderedListsAsHeadings ? `Ordered lists \u2192 H${special.orderedListHeadingLevel1}/H${special.orderedListHeadingLevel2}/H${special.orderedListHeadingLevel3}` : "Off";
     this.collapsible(
       containerEl,
       "Special options",
@@ -1987,58 +1988,37 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
       (body) => {
         const tip = body.createDiv({ cls: "beautiful-pdf-tip" });
         tip.appendText(
-          "PDF-only extras. Numbered headings keep normal # / ## markup in the note; numbers are added only in the export."
+          "PDF-only. Write normal numbered lists (1. 2. 3.) in the note \u2014 Obsidian keeps auto-numbering. In the PDF those items use a heading style; # headings and body text stay as usual."
         );
         const enableBox = this.rowBox(body);
-        new import_obsidian5.Setting(enableBox).setName("Number headings").setDesc("Prefix headings with 1 / 1.1 / 1.1.1 in the PDF").addToggle(
-          (tg) => tg.setValue(special.numberHeadings).onChange((v) => {
+        new import_obsidian5.Setting(enableBox).setName("Style numbered lists as headings").setDesc("Apply heading look to ordered-list items in the PDF only").addToggle(
+          (tg) => tg.setValue(special.styleOrderedListsAsHeadings).onChange((v) => {
             void (async () => {
-              special.numberHeadings = v;
+              special.styleOrderedListsAsHeadings = v;
               await this.plugin.saveSettings();
               this.display();
             })();
           })
         );
-        if (!special.numberHeadings)
+        if (!special.styleOrderedListsAsHeadings)
           return;
-        const rangeBox = this.rowBox(body);
-        new import_obsidian5.Setting(rangeBox).setName("From level").addDropdown((dd) => {
-          for (let i = 1; i <= 6; i++)
-            dd.addOption(String(i), `H${i}`);
-          dd.setValue(String(special.numberMinLevel)).onChange((v) => {
-            void (async () => {
-              special.numberMinLevel = Number(v);
-              if (special.numberMinLevel > special.numberMaxLevel) {
-                special.numberMaxLevel = special.numberMinLevel;
-              }
-              await this.plugin.saveSettings();
-              this.display();
-            })();
+        const levelBox = this.rowBox(body);
+        const addLevel = (name, key) => {
+          new import_obsidian5.Setting(levelBox).setName(name).addDropdown((dd) => {
+            for (let i = 1; i <= 6; i++)
+              dd.addOption(String(i), `H${i} style`);
+            dd.setValue(String(special[key])).onChange((v) => {
+              void (async () => {
+                special[key] = Number(v);
+                await this.plugin.saveSettings();
+                this.display();
+              })();
+            });
           });
-        });
-        new import_obsidian5.Setting(rangeBox).setName("To level").addDropdown((dd) => {
-          for (let i = 1; i <= 6; i++)
-            dd.addOption(String(i), `H${i}`);
-          dd.setValue(String(special.numberMaxLevel)).onChange((v) => {
-            void (async () => {
-              special.numberMaxLevel = Number(v);
-              if (special.numberMaxLevel < special.numberMinLevel) {
-                special.numberMinLevel = special.numberMaxLevel;
-              }
-              await this.plugin.saveSettings();
-              this.display();
-            })();
-          });
-        });
-        const skipBox = this.rowBox(body);
-        new import_obsidian5.Setting(skipBox).setName("Skip filename title").setDesc("Do not number the title injected from the file name").addToggle(
-          (tg) => tg.setValue(special.skipFilenameTitle).onChange((v) => {
-            void (async () => {
-              special.skipFilenameTitle = v;
-              await this.plugin.saveSettings();
-            })();
-          })
-        );
+        };
+        addLevel("Top-level 1. 2. 3.", "orderedListHeadingLevel1");
+        addLevel("Nested level 2", "orderedListHeadingLevel2");
+        addLevel("Nested level 3", "orderedListHeadingLevel3");
       }
     );
   }
@@ -2496,11 +2476,9 @@ function mergeProfile(raw, fallback) {
   const page = { ...defaultPage, ...raw.page };
   page.lineHeight = toLineHeightPercent(page.lineHeight, defaultPage.lineHeight);
   const special = createDefaultSpecialOptions(raw.special);
-  special.numberMinLevel = clampLevel(special.numberMinLevel, 1);
-  special.numberMaxLevel = clampLevel(special.numberMaxLevel, 6);
-  if (special.numberMinLevel > special.numberMaxLevel) {
-    special.numberMaxLevel = special.numberMinLevel;
-  }
+  special.orderedListHeadingLevel1 = clampLevel(special.orderedListHeadingLevel1, 2);
+  special.orderedListHeadingLevel2 = clampLevel(special.orderedListHeadingLevel2, 3);
+  special.orderedListHeadingLevel3 = clampLevel(special.orderedListHeadingLevel3, 4);
   return {
     id: raw.id,
     name: raw.name,
