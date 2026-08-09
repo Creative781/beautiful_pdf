@@ -558,11 +558,12 @@ async function rewriteInternalImages(app, file, el2) {
       if (!current || current.startsWith("data:"))
         return;
       try {
-        const res = await fetch(current);
-        if (!res.ok)
+        const res = await (0, import_obsidian.requestUrl)({ url: current });
+        if (res.status >= 400)
           return;
-        const data = await res.arrayBuffer();
-        const mime = ((_a = res.headers.get("content-type")) == null ? void 0 : _a.split(";")[0]) || mimeFromExtension(current.split(".").pop() || "");
+        const data = res.arrayBuffer;
+        const contentType = (_a = res.headers["content-type"]) != null ? _a : res.headers["Content-Type"];
+        const mime = (contentType == null ? void 0 : contentType.split(";")[0]) || mimeFromExtension(current.split(".").pop() || "");
         img.setAttribute(
           "src",
           `data:${mime};base64,${arrayBufferToBase64(data)}`
@@ -1433,16 +1434,38 @@ function getQueryLocalFonts() {
   return typeof fn === "function" ? fn.bind(window) : null;
 }
 function getPlatform() {
-  var _a;
   try {
     const req = getNodeRequire2();
     if (!req)
       return null;
     const proc = req("process");
-    return (_a = proc.platform) != null ? _a : null;
+    if (!proc || typeof proc !== "object")
+      return null;
+    const platform = proc.platform;
+    return typeof platform === "string" ? platform : null;
   } catch (e) {
     return null;
   }
+}
+function getExecFile() {
+  const req = getNodeRequire2();
+  if (!req)
+    return null;
+  const child = req("child_process");
+  if (!child || typeof child !== "object")
+    return null;
+  const execFile = child.execFile;
+  return typeof execFile === "function" ? execFile : null;
+}
+function execFileUtf8(execFile, file, args, opts) {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, opts, (err, stdout) => {
+      if (err)
+        reject(err);
+      else
+        resolve(typeof stdout === "string" ? stdout : "");
+    });
+  });
 }
 function uniqSorted(names) {
   const set = /* @__PURE__ */ new Set();
@@ -1468,11 +1491,10 @@ async function listFromQueryLocalFonts() {
   }
 }
 async function listFromWindows() {
-  const req = getNodeRequire2();
-  if (!req)
+  const execFile = getExecFile();
+  if (!execFile)
     return [];
   try {
-    const child = req("child_process");
     const ps = [
       "$ErrorActionPreference = 'SilentlyContinue'",
       "Add-Type -AssemblyName System.Drawing",
@@ -1495,24 +1517,17 @@ async function listFromWindows() {
       "}",
       "$names | Sort-Object"
     ].join("; ");
-    const stdout = await new Promise((resolve, reject) => {
-      child.execFile(
-        "powershell.exe",
-        ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps],
-        {
-          encoding: "utf8",
-          windowsHide: true,
-          timeout: 2e4,
-          maxBuffer: 16 * 1024 * 1024
-        },
-        (err, out) => {
-          if (err)
-            reject(err);
-          else
-            resolve(out || "");
-        }
-      );
-    });
+    const stdout = await execFileUtf8(
+      execFile,
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps],
+      {
+        encoding: "utf8",
+        windowsHide: true,
+        timeout: 2e4,
+        maxBuffer: 16 * 1024 * 1024
+      }
+    );
     return stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   } catch (err) {
     console.warn("Beautiful PDF: Windows font enumeration failed", err);
@@ -1521,28 +1536,20 @@ async function listFromWindows() {
 }
 async function listFromMac() {
   var _a;
-  const req = getNodeRequire2();
-  if (!req)
+  const execFile = getExecFile();
+  if (!execFile)
     return [];
   try {
-    const child = req("child_process");
-    const stdout = await new Promise((resolve, reject) => {
-      child.execFile(
-        "/usr/sbin/system_profiler",
-        ["SPFontsDataType", "-json"],
-        {
-          encoding: "utf8",
-          timeout: 3e4,
-          maxBuffer: 32 * 1024 * 1024
-        },
-        (err, out) => {
-          if (err)
-            reject(err);
-          else
-            resolve(out || "");
-        }
-      );
-    });
+    const stdout = await execFileUtf8(
+      execFile,
+      "/usr/sbin/system_profiler",
+      ["SPFontsDataType", "-json"],
+      {
+        encoding: "utf8",
+        timeout: 3e4,
+        maxBuffer: 32 * 1024 * 1024
+      }
+    );
     const data = JSON.parse(stdout);
     const names = [];
     for (const item of (_a = data.SPFontsDataType) != null ? _a : []) {
@@ -1557,24 +1564,16 @@ async function listFromMac() {
   }
 }
 async function listFromLinux() {
-  const req = getNodeRequire2();
-  if (!req)
+  const execFile = getExecFile();
+  if (!execFile)
     return [];
   try {
-    const child = req("child_process");
-    const stdout = await new Promise((resolve, reject) => {
-      child.execFile(
-        "fc-list",
-        [":", "family"],
-        { encoding: "utf8", timeout: 15e3, maxBuffer: 16 * 1024 * 1024 },
-        (err, out) => {
-          if (err)
-            reject(err);
-          else
-            resolve(out || "");
-        }
-      );
-    });
+    const stdout = await execFileUtf8(
+      execFile,
+      "fc-list",
+      [":", "family"],
+      { encoding: "utf8", timeout: 15e3, maxBuffer: 16 * 1024 * 1024 }
+    );
     const names = [];
     for (const line of stdout.split(/\r?\n/)) {
       for (const part of line.split(",")) {
@@ -1604,7 +1603,7 @@ async function listSystemFontFamilies() {
     return cachedFamilies;
   if (loading)
     return loading;
-  loading = (async () => {
+  const promise = (async () => {
     const [fromApi, fromOs] = await Promise.all([
       listFromQueryLocalFonts(),
       listFromPlatform()
@@ -1612,10 +1611,12 @@ async function listSystemFontFamilies() {
     const merged = uniqSorted([...fromApi, ...fromOs, ...FALLBACK_FONTS]);
     cachedFamilies = merged.length > 0 ? merged : FALLBACK_FONTS.slice().sort();
     return cachedFamilies;
-  })().finally(() => {
+  })();
+  loading = promise;
+  void promise.finally(() => {
     loading = null;
   });
-  return loading;
+  return promise;
 }
 function clearFontCache() {
   cachedFamilies = null;
@@ -1686,11 +1687,10 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
   }
   /** Obsidian settings scroll pane — Windows resets this on full redraw. */
   captureScroll() {
-    const pane = this.containerEl.closest(
-      ".vertical-tab-content"
-    );
-    if (pane)
+    const pane = this.containerEl.closest(".vertical-tab-content");
+    if (pane instanceof HTMLElement) {
       return { el: pane, top: pane.scrollTop };
+    }
     let el2 = this.containerEl;
     while (el2) {
       const { overflowY } = getComputedStyle(el2);
@@ -1708,9 +1708,9 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
       scroll.el.scrollTop = scroll.top;
     };
     apply();
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       apply();
-      requestAnimationFrame(apply);
+      window.requestAnimationFrame(apply);
     });
   }
   renderAll(containerEl) {
@@ -1998,13 +1998,13 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
     dd.addOption("center", "Center");
     dd.addOption("right", "Right");
   }
-  /* ---------- Special options (PDF-only) ---------- */
+  /* ---------- Extras (PDF-only) ---------- */
   renderSpecialSection(containerEl) {
     const profile = getActiveProfile(this.plugin.settings);
     const special = profile.special;
     const summary = special.styleOrderedListsAsHeadings ? `Ordered lists \u2192 H${special.orderedListHeadingLevel1}/H${special.orderedListHeadingLevel2}/H${special.orderedListHeadingLevel3}` : "Off";
     const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-    new import_obsidian5.Setting(section).setName("Special options").setHeading();
+    new import_obsidian5.Setting(section).setName("Extras").setHeading();
     this.collapsible(
       section,
       "Numbered lists as headings",

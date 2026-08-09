@@ -11,6 +11,13 @@ type QueryLocalFonts = () => Promise<LocalFontData[]>;
 
 type NodeRequireFn = (id: string) => unknown;
 
+type ExecFileFn = (
+	file: string,
+	args: string[],
+	opts: Record<string, unknown>,
+	cb: (err: unknown, stdout: string, stderr: string) => void,
+) => void;
+
 /** Sensible fallbacks when enumeration APIs fail. */
 const FALLBACK_FONTS = [
 	"Arial",
@@ -49,15 +56,40 @@ function getQueryLocalFonts(): QueryLocalFonts | null {
 	return typeof fn === "function" ? fn.bind(window) : null;
 }
 
-function getPlatform(): NodeJS.Platform | null {
+function getPlatform(): string | null {
 	try {
 		const req = getNodeRequire();
 		if (!req) return null;
-		const proc = req("process") as { platform?: NodeJS.Platform };
-		return proc.platform ?? null;
+		const proc = req("process");
+		if (!proc || typeof proc !== "object") return null;
+		const platform = (proc as { platform?: unknown }).platform;
+		return typeof platform === "string" ? platform : null;
 	} catch {
 		return null;
 	}
+}
+
+function getExecFile(): ExecFileFn | null {
+	const req = getNodeRequire();
+	if (!req) return null;
+	const child = req("child_process");
+	if (!child || typeof child !== "object") return null;
+	const execFile = (child as { execFile?: unknown }).execFile;
+	return typeof execFile === "function" ? (execFile as ExecFileFn) : null;
+}
+
+function execFileUtf8(
+	execFile: ExecFileFn,
+	file: string,
+	args: string[],
+	opts: Record<string, unknown>,
+): Promise<string> {
+	return new Promise((resolve, reject) => {
+		execFile(file, args, opts, (err, stdout) => {
+			if (err) reject(err);
+			else resolve(typeof stdout === "string" ? stdout : "");
+		});
+	});
 }
 
 function uniqSorted(names: Iterable<string>): string[] {
@@ -88,17 +120,9 @@ async function listFromQueryLocalFonts(): Promise<string[]> {
  * Chromium queryLocalFonts often omits user-installed / some CJK families.
  */
 async function listFromWindows(): Promise<string[]> {
-	const req = getNodeRequire();
-	if (!req) return [];
+	const execFile = getExecFile();
+	if (!execFile) return [];
 	try {
-		const child = req("child_process") as {
-			execFile: (
-				file: string,
-				args: string[],
-				opts: Record<string, unknown>,
-				cb: (err: Error | null, stdout: string, stderr: string) => void,
-			) => void;
-		};
 		const ps = [
 			"$ErrorActionPreference = 'SilentlyContinue'",
 			"Add-Type -AssemblyName System.Drawing",
@@ -122,22 +146,17 @@ async function listFromWindows(): Promise<string[]> {
 			"$names | Sort-Object",
 		].join("; ");
 
-		const stdout = await new Promise<string>((resolve, reject) => {
-			child.execFile(
-				"powershell.exe",
-				["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps],
-				{
-					encoding: "utf8",
-					windowsHide: true,
-					timeout: 20000,
-					maxBuffer: 16 * 1024 * 1024,
-				},
-				(err, out) => {
-					if (err) reject(err);
-					else resolve(out || "");
-				},
-			);
-		});
+		const stdout = await execFileUtf8(
+			execFile,
+			"powershell.exe",
+			["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps],
+			{
+				encoding: "utf8",
+				windowsHide: true,
+				timeout: 20000,
+				maxBuffer: 16 * 1024 * 1024,
+			},
+		);
 
 		return stdout
 			.split(/\r?\n/)
@@ -151,32 +170,19 @@ async function listFromWindows(): Promise<string[]> {
 
 /** macOS: system_profiler font database (supplements queryLocalFonts). */
 async function listFromMac(): Promise<string[]> {
-	const req = getNodeRequire();
-	if (!req) return [];
+	const execFile = getExecFile();
+	if (!execFile) return [];
 	try {
-		const child = req("child_process") as {
-			execFile: (
-				file: string,
-				args: string[],
-				opts: Record<string, unknown>,
-				cb: (err: Error | null, stdout: string, stderr: string) => void,
-			) => void;
-		};
-		const stdout = await new Promise<string>((resolve, reject) => {
-			child.execFile(
-				"/usr/sbin/system_profiler",
-				["SPFontsDataType", "-json"],
-				{
-					encoding: "utf8",
-					timeout: 30000,
-					maxBuffer: 32 * 1024 * 1024,
-				},
-				(err, out) => {
-					if (err) reject(err);
-					else resolve(out || "");
-				},
-			);
-		});
+		const stdout = await execFileUtf8(
+			execFile,
+			"/usr/sbin/system_profiler",
+			["SPFontsDataType", "-json"],
+			{
+				encoding: "utf8",
+				timeout: 30000,
+				maxBuffer: 32 * 1024 * 1024,
+			},
+		);
 		const data = JSON.parse(stdout) as {
 			SPFontsDataType?: Array<{ type?: string; _name?: string }>;
 		};
@@ -195,28 +201,15 @@ async function listFromMac(): Promise<string[]> {
 
 /** Linux: fontconfig family list. */
 async function listFromLinux(): Promise<string[]> {
-	const req = getNodeRequire();
-	if (!req) return [];
+	const execFile = getExecFile();
+	if (!execFile) return [];
 	try {
-		const child = req("child_process") as {
-			execFile: (
-				file: string,
-				args: string[],
-				opts: Record<string, unknown>,
-				cb: (err: Error | null, stdout: string, stderr: string) => void,
-			) => void;
-		};
-		const stdout = await new Promise<string>((resolve, reject) => {
-			child.execFile(
-				"fc-list",
-				[":", "family"],
-				{ encoding: "utf8", timeout: 15000, maxBuffer: 16 * 1024 * 1024 },
-				(err, out) => {
-					if (err) reject(err);
-					else resolve(out || "");
-				},
-			);
-		});
+		const stdout = await execFileUtf8(
+			execFile,
+			"fc-list",
+			[":", "family"],
+			{ encoding: "utf8", timeout: 15000, maxBuffer: 16 * 1024 * 1024 },
+		);
 		const names: string[] = [];
 		for (const line of stdout.split(/\r?\n/)) {
 			for (const part of line.split(",")) {
@@ -244,7 +237,7 @@ export async function listSystemFontFamilies(): Promise<string[]> {
 	if (cachedFamilies) return cachedFamilies;
 	if (loading) return loading;
 
-	loading = (async () => {
+	const promise = (async () => {
 		const [fromApi, fromOs] = await Promise.all([
 			listFromQueryLocalFonts(),
 			listFromPlatform(),
@@ -252,11 +245,14 @@ export async function listSystemFontFamilies(): Promise<string[]> {
 		const merged = uniqSorted([...fromApi, ...fromOs, ...FALLBACK_FONTS]);
 		cachedFamilies = merged.length > 0 ? merged : FALLBACK_FONTS.slice().sort();
 		return cachedFamilies;
-	})().finally(() => {
+	})();
+
+	loading = promise;
+	void promise.finally(() => {
 		loading = null;
 	});
 
-	return loading;
+	return promise;
 }
 
 /** Force a fresh scan (e.g. after installing fonts). */

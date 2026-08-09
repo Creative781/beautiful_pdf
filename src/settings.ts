@@ -67,10 +67,10 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 	/** Obsidian settings scroll pane — Windows resets this on full redraw. */
 	private captureScroll(): { el: HTMLElement; top: number } | null {
-		const pane = this.containerEl.closest(
-			".vertical-tab-content",
-		) as HTMLElement | null;
-		if (pane) return { el: pane, top: pane.scrollTop };
+		const pane = this.containerEl.closest(".vertical-tab-content");
+		if (pane instanceof HTMLElement) {
+			return { el: pane, top: pane.scrollTop };
+		}
 
 		let el: HTMLElement | null = this.containerEl;
 		while (el) {
@@ -94,9 +94,9 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			scroll.el.scrollTop = scroll.top;
 		};
 		apply();
-		requestAnimationFrame(() => {
+		window.requestAnimationFrame(() => {
 			apply();
-			requestAnimationFrame(apply);
+			window.requestAnimationFrame(apply);
 		});
 	}
 
@@ -440,7 +440,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		dd.addOption("right", "Right");
 	}
 
-	/* ---------- Special options (PDF-only) ---------- */
+	/* ---------- Extras (PDF-only) ---------- */
 
 	private renderSpecialSection(containerEl: HTMLElement): void {
 		const profile = getActiveProfile(this.plugin.settings);
@@ -450,7 +450,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			: "Off";
 
 		const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-		new Setting(section).setName("Special options").setHeading();
+		new Setting(section).setName("Extras").setHeading();
 
 		this.collapsible(
 			section,

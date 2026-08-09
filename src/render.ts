@@ -1,4 +1,4 @@
-import { App, Component, MarkdownRenderer, TFile } from "obsidian";
+import { App, Component, MarkdownRenderer, TFile, requestUrl } from "obsidian";
 import { profileToCss } from "./css";
 import type { Profile } from "./types";
 import { applyPageBreakMarkers } from "./util";
@@ -139,11 +139,12 @@ async function rewriteInternalImages(
 			const current = img.getAttribute("src");
 			if (!current || current.startsWith("data:")) return;
 			try {
-				const res = await fetch(current);
-				if (!res.ok) return;
-				const data = await res.arrayBuffer();
+				const res = await requestUrl({ url: current });
+				if (res.status >= 400) return;
+				const data = res.arrayBuffer;
+				const contentType = res.headers["content-type"] ?? res.headers["Content-Type"];
 				const mime =
-					res.headers.get("content-type")?.split(";")[0] ||
+					contentType?.split(";")[0] ||
 					mimeFromExtension(current.split(".").pop() || "");
 				img.setAttribute(
 					"src",
