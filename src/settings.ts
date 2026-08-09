@@ -26,8 +26,8 @@ import { applyFramePreview } from "./frame";
 import { lineHeightCss, toLineHeightPercent } from "./util";
 
 type UiState = {
-	pageOpen: boolean;
 	specialOpen: boolean;
+	pageSizeOpen: boolean;
 	marginsOpen: boolean;
 	pageNumberOpen: boolean;
 	headerFooterOpen: boolean;
@@ -39,8 +39,8 @@ type UiState = {
 export class BeautifulPdfSettingTab extends PluginSettingTab {
 	plugin: BeautifulPdfPlugin;
 	private ui: UiState = {
-		pageOpen: false,
 		specialOpen: false,
+		pageSizeOpen: false,
 		marginsOpen: false,
 		pageNumberOpen: false,
 		headerFooterOpen: false,
@@ -56,11 +56,48 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 	display(): void {
 		const { containerEl } = this;
+		const scroll = this.captureScroll();
 		containerEl.empty();
 		containerEl.addClass("beautiful-pdf-settings");
 		this.renderAll(containerEl);
+		this.restoreScroll(scroll);
 		// Warm the system font cache for the Choose… picker
 		void listSystemFontFamilies();
+	}
+
+	/** Obsidian settings scroll pane — Windows resets this on full redraw. */
+	private captureScroll(): { el: HTMLElement; top: number } | null {
+		const pane = this.containerEl.closest(
+			".vertical-tab-content",
+		) as HTMLElement | null;
+		if (pane) return { el: pane, top: pane.scrollTop };
+
+		let el: HTMLElement | null = this.containerEl;
+		while (el) {
+			const { overflowY } = getComputedStyle(el);
+			if (
+				(overflowY === "auto" || overflowY === "scroll") &&
+				el.scrollHeight > el.clientHeight + 1
+			) {
+				return { el, top: el.scrollTop };
+			}
+			el = el.parentElement;
+		}
+		return null;
+	}
+
+	private restoreScroll(
+		scroll: { el: HTMLElement; top: number } | null,
+	): void {
+		if (!scroll) return;
+		const apply = () => {
+			scroll.el.scrollTop = scroll.top;
+		};
+		apply();
+		requestAnimationFrame(() => {
+			apply();
+			requestAnimationFrame(apply);
+		});
 	}
 
 	private renderAll(containerEl: HTMLElement): void {
@@ -164,32 +201,26 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 	private renderPageSection(containerEl: HTMLElement): void {
 		const page = getActiveProfile(this.plugin.settings).page;
 		page.lineHeight = toLineHeightPercent(page.lineHeight);
-		const summary = `${page.pageSize} · margins ${page.marginTopMm}/${page.marginBottomMm}/${page.marginLeftMm}/${page.marginRightMm}mm`;
+
+		const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
+		new Setting(section).setName("Page").setHeading();
+
+		const sizeSummary =
+			page.pageSize === "Custom"
+				? `Custom ${page.pageWidthMm}×${page.pageHeightMm} mm`
+				: page.pageSize;
 
 		this.collapsible(
-			containerEl,
-			"Page",
-			summary,
-			this.ui.pageOpen,
+			section,
+			"Page size",
+			sizeSummary,
+			this.ui.pageSizeOpen,
 			(open) => {
-				this.ui.pageOpen = open;
+				this.ui.pageSizeOpen = open;
 			},
 			(body) => {
-				const titleToggle = this.rowBox(body);
-				new Setting(titleToggle)
-					.setName("Use filename as title")
-					.addToggle((tg) =>
-						tg.setValue(page.useFilenameAsTitle).onChange((v) => {
-				void (async () => {
-							page.useFilenameAsTitle = v;
-							await this.plugin.saveSettings();
-						})();
-			}),
-					);
-
-				const sizeBox = this.rowBox(body);
-				new Setting(sizeBox)
-					.setName("Page size")
+				new Setting(body)
+					.setName("Size")
 					.addDropdown((dd) => {
 						(["A4", "Letter", "Legal", "Custom"] as PageSize[]).forEach((s) => {
 							dd.addOption(s, s);
@@ -204,194 +235,199 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 					});
 
 				if (page.pageSize === "Custom") {
-					const customBox = this.rowBox(body);
-					this.numSetting(customBox, "Width (mm)", page.pageWidthMm, async (n) => {
+					this.numSetting(body, "Width (mm)", page.pageWidthMm, async (n) => {
 						page.pageWidthMm = n;
 					});
-					this.numSetting(customBox, "Height (mm)", page.pageHeightMm, async (n) => {
+					this.numSetting(body, "Height (mm)", page.pageHeightMm, async (n) => {
 						page.pageHeightMm = n;
 					});
 				}
+			},
+		);
 
-				this.collapsible(
-					body,
-					"Margins",
-					`${page.marginTopMm} / ${page.marginBottomMm} / ${page.marginLeftMm} / ${page.marginRightMm} mm`,
-					this.ui.marginsOpen,
-					(o) => {
-						this.ui.marginsOpen = o;
-					},
-					(inner) => {
-						this.numSetting(inner, "Top (mm)", page.marginTopMm, async (n) => {
-							page.marginTopMm = n;
-						});
-						this.numSetting(inner, "Bottom (mm)", page.marginBottomMm, async (n) => {
-							page.marginBottomMm = n;
-						});
-						this.numSetting(inner, "Left (mm)", page.marginLeftMm, async (n) => {
-							page.marginLeftMm = n;
-						});
-						this.numSetting(inner, "Right (mm)", page.marginRightMm, async (n) => {
-							page.marginRightMm = n;
-						});
-					},
-					true,
-				);
+		this.collapsible(
+			section,
+			"Margins",
+			`${page.marginTopMm} / ${page.marginBottomMm} / ${page.marginLeftMm} / ${page.marginRightMm} mm`,
+			this.ui.marginsOpen,
+			(o) => {
+				this.ui.marginsOpen = o;
+			},
+			(inner) => {
+				this.numSetting(inner, "Top (mm)", page.marginTopMm, async (n) => {
+					page.marginTopMm = n;
+				});
+				this.numSetting(inner, "Bottom (mm)", page.marginBottomMm, async (n) => {
+					page.marginBottomMm = n;
+				});
+				this.numSetting(inner, "Left (mm)", page.marginLeftMm, async (n) => {
+					page.marginLeftMm = n;
+				});
+				this.numSetting(inner, "Right (mm)", page.marginRightMm, async (n) => {
+					page.marginRightMm = n;
+				});
+			},
+		);
 
-				const pnLabel =
-					(
-						{
+		const pnLabel =
+			(
+				{
+					none: "None",
+					"bottom-center": "Bottom center",
+					"bottom-right": "Bottom right",
+					"top-center": "Top center",
+				} as Record<PageNumberPos, string>
+			)[page.pageNumber] ?? page.pageNumber;
+
+		this.collapsible(
+			section,
+			"Page numbers",
+			pnLabel,
+			this.ui.pageNumberOpen,
+			(o) => {
+				this.ui.pageNumberOpen = o;
+			},
+			(inner) => {
+				new Setting(inner)
+					.setName("Position")
+					.addDropdown((dd) => {
+						const opts: Record<PageNumberPos, string> = {
 							none: "None",
 							"bottom-center": "Bottom center",
 							"bottom-right": "Bottom right",
 							"top-center": "Top center",
-						} as Record<PageNumberPos, string>
-					)[page.pageNumber] ?? page.pageNumber;
+						};
+						(Object.keys(opts) as PageNumberPos[]).forEach((k) => {
+							dd.addOption(k, opts[k]);
+						});
+						dd.setValue(page.pageNumber).onChange((v) => {
+							void (async () => {
+								page.pageNumber = v as PageNumberPos;
+								await this.plugin.saveSettings();
+								this.display();
+							})();
+						});
+					});
+				new Setting(inner)
+					.setName("Format")
+					.addText((t) =>
+						t
+							.setPlaceholder("{page} / {pages}")
+							.setValue(page.pageNumberFormat)
+							.onChange((v) => {
+								void (async () => {
+									page.pageNumberFormat = v;
+									await this.plugin.saveSettings();
+								})();
+							}),
+					);
+			},
+		);
 
-				this.collapsible(
-					body,
-					"Page numbers",
-					pnLabel,
-					this.ui.pageNumberOpen,
-					(o) => {
-						this.ui.pageNumberOpen = o;
-					},
-					(inner) => {
-						new Setting(inner)
-							.setName("Position")
-							.addDropdown((dd) => {
-								const opts: Record<PageNumberPos, string> = {
-									none: "None",
-									"bottom-center": "Bottom center",
-									"bottom-right": "Bottom right",
-									"top-center": "Top center",
-								};
-								(Object.keys(opts) as PageNumberPos[]).forEach((k) => {
-									dd.addOption(k, opts[k]);
-								});
-								dd.setValue(page.pageNumber).onChange((v) => {
-									void (async () => {
-										page.pageNumber = v as PageNumberPos;
-										await this.plugin.saveSettings();
-										this.display();
-									})();
-								});
-							});
-						new Setting(inner)
-							.setName("Format")
-							.addText((t) =>
-								t
-									.setPlaceholder("{page} / {pages}")
-									.setValue(page.pageNumberFormat)
-									.onChange((v) => {
-				void (async () => {
-										page.pageNumberFormat = v;
-										await this.plugin.saveSettings();
-									})();
-			}),
-							);
-					},
-					true,
-				);
+		const hfSummary =
+			[
+				page.headerText ? `Header (${page.headerAlign})` : null,
+				page.footerText ? `Footer (${page.footerAlign})` : null,
+			]
+				.filter(Boolean)
+				.join(" · ") || "None";
 
-				const hfSummary =
-					[
-						page.headerText ? `Header (${page.headerAlign})` : null,
-						page.footerText ? `Footer (${page.footerAlign})` : null,
-					]
-						.filter(Boolean)
-						.join(" · ") || "None";
+		this.collapsible(
+			section,
+			"Header · footer",
+			hfSummary,
+			this.ui.headerFooterOpen,
+			(o) => {
+				this.ui.headerFooterOpen = o;
+			},
+			(inner) => {
+				new Setting(inner)
+					.setName("Header text")
+					.addText((t) =>
+						t.setValue(page.headerText).onChange((v) => {
+							void (async () => {
+								page.headerText = v;
+								await this.plugin.saveSettings();
+							})();
+						}),
+					);
+				new Setting(inner)
+					.setName("Header align")
+					.addDropdown((dd) => {
+						this.addHfAlignOptions(dd);
+						dd.setValue(page.headerAlign ?? "left").onChange((v) => {
+							void (async () => {
+								page.headerAlign = v as HfAlign;
+								await this.plugin.saveSettings();
+							})();
+						});
+					});
+				new Setting(inner)
+					.setName("Footer text")
+					.addText((t) =>
+						t.setValue(page.footerText).onChange((v) => {
+							void (async () => {
+								page.footerText = v;
+								await this.plugin.saveSettings();
+							})();
+						}),
+					);
+				new Setting(inner)
+					.setName("Footer align")
+					.addDropdown((dd) => {
+						this.addHfAlignOptions(dd);
+						dd.setValue(page.footerAlign ?? "center").onChange((v) => {
+							void (async () => {
+								page.footerAlign = v as HfAlign;
+								await this.plugin.saveSettings();
+							})();
+						});
+					});
+			},
+		);
 
-				this.collapsible(
-					body,
-					"Header · footer",
-					hfSummary,
-					this.ui.headerFooterOpen,
-					(o) => {
-						this.ui.headerFooterOpen = o;
-					},
-					(inner) => {
-						new Setting(inner)
-							.setName("Header text")
-							.addText((t) =>
-								t.setValue(page.headerText).onChange((v) => {
-				void (async () => {
-									page.headerText = v;
+		this.collapsible(
+			section,
+			"More",
+			`Line height ${page.lineHeight}% · background ${page.printBackground ? "on" : "off"}`,
+			this.ui.morePageOpen,
+			(o) => {
+				this.ui.morePageOpen = o;
+			},
+			(inner) => {
+				new Setting(inner)
+					.setName("Use filename as title")
+					.addToggle((tg) =>
+						tg.setValue(page.useFilenameAsTitle).onChange((v) => {
+							void (async () => {
+								page.useFilenameAsTitle = v;
+								await this.plugin.saveSettings();
+							})();
+						}),
+					);
+				new Setting(inner)
+					.setName("Default line height (%)")
+					.addText((t) =>
+						t.setValue(String(page.lineHeight)).onChange((v) => {
+							void (async () => {
+								const n = parseFloat(v);
+								if (!Number.isNaN(n) && n > 0) {
+									page.lineHeight = toLineHeightPercent(n);
 									await this.plugin.saveSettings();
-								})();
-			}),
-							);
-						new Setting(inner)
-							.setName("Header align")
-							.addDropdown((dd) => {
-								this.addHfAlignOptions(dd);
-								dd.setValue(page.headerAlign ?? "left").onChange((v) => {
-				void (async () => {
-									page.headerAlign = v as HfAlign;
-									await this.plugin.saveSettings();
-								})();
-			});
-							});
-						new Setting(inner)
-							.setName("Footer text")
-							.addText((t) =>
-								t.setValue(page.footerText).onChange((v) => {
-				void (async () => {
-									page.footerText = v;
-									await this.plugin.saveSettings();
-								})();
-			}),
-							);
-						new Setting(inner)
-							.setName("Footer align")
-							.addDropdown((dd) => {
-								this.addHfAlignOptions(dd);
-								dd.setValue(page.footerAlign ?? "center").onChange((v) => {
-				void (async () => {
-									page.footerAlign = v as HfAlign;
-									await this.plugin.saveSettings();
-								})();
-			});
-							});
-					},
-					true,
-				);
-
-				this.collapsible(
-					body,
-					"More",
-					`Line height ${page.lineHeight}% · background ${page.printBackground ? "on" : "off"}`,
-					this.ui.morePageOpen,
-					(o) => {
-						this.ui.morePageOpen = o;
-					},
-					(inner) => {
-						new Setting(inner)
-							.setName("Default line height (%)")
-							.addText((t) =>
-								t.setValue(String(page.lineHeight)).onChange((v) => {
-				void (async () => {
-									const n = parseFloat(v);
-									if (!Number.isNaN(n) && n > 0) {
-										page.lineHeight = toLineHeightPercent(n);
-										await this.plugin.saveSettings();
-									}
-								})();
-			}),
-							);
-						new Setting(inner)
-							.setName("Print background")
-							.addToggle((tg) =>
-								tg.setValue(page.printBackground).onChange((v) => {
-				void (async () => {
-									page.printBackground = v;
-									await this.plugin.saveSettings();
-								})();
-			}),
-							);
-					},
-					true,
-				);
+								}
+							})();
+						}),
+					);
+				new Setting(inner)
+					.setName("Print background")
+					.addToggle((tg) =>
+						tg.setValue(page.printBackground).onChange((v) => {
+							void (async () => {
+								page.printBackground = v;
+								await this.plugin.saveSettings();
+							})();
+						}),
+					);
 			},
 		);
 	}
@@ -413,9 +449,12 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			? `Ordered lists → H${special.orderedListHeadingLevel1}/H${special.orderedListHeadingLevel2}/H${special.orderedListHeadingLevel3}`
 			: "Off";
 
+		const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
+		new Setting(section).setName("Special options").setHeading();
+
 		this.collapsible(
-			containerEl,
-			"Special options",
+			section,
+			"Numbered lists as headings",
 			summary,
 			this.ui.specialOpen,
 			(open) => {
@@ -427,9 +466,8 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 					"PDF-only. Write normal numbered lists (1. 2. 3.) in the note — Obsidian keeps auto-numbering. In the PDF those items use a heading style; # headings and body text stay as usual.",
 				);
 
-				const enableBox = this.rowBox(body);
-				new Setting(enableBox)
-					.setName("Style numbered lists as headings")
+				new Setting(body)
+					.setName("Enable")
 					.setDesc("Apply heading look to ordered-list items in the PDF only")
 					.addToggle((tg) =>
 						tg.setValue(special.styleOrderedListsAsHeadings).onChange((v) => {
@@ -443,12 +481,14 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 				if (!special.styleOrderedListsAsHeadings) return;
 
-				const levelBox = this.rowBox(body);
 				const addLevel = (
 					name: string,
-					key: "orderedListHeadingLevel1" | "orderedListHeadingLevel2" | "orderedListHeadingLevel3",
+					key:
+						| "orderedListHeadingLevel1"
+						| "orderedListHeadingLevel2"
+						| "orderedListHeadingLevel3",
 				) => {
-					new Setting(levelBox).setName(name).addDropdown((dd) => {
+					new Setting(body).setName(name).addDropdown((dd) => {
 						for (let i = 1; i <= 6; i++) dd.addOption(String(i), `H${i} style`);
 						dd.setValue(String(special[key])).onChange((v) => {
 							void (async () => {
@@ -784,13 +824,9 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		open: boolean,
 		setOpen: (open: boolean) => void,
 		renderBody: (body: HTMLElement) => void,
-		nested = false,
 	): void {
 		const box = parent.createDiv({
-			cls:
-				"beautiful-pdf-fold" +
-				(nested ? " is-nested" : "") +
-				(open ? " is-open" : ""),
+			cls: "beautiful-pdf-fold" + (open ? " is-open" : ""),
 		});
 		const head = box.createDiv({ cls: "beautiful-pdf-fold-head" });
 		head.createSpan({ cls: "beautiful-pdf-fold-title", text: title });
@@ -806,11 +842,6 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			const body = box.createDiv({ cls: "beautiful-pdf-fold-body" });
 			renderBody(body);
 		}
-	}
-
-	/** Same outer card chrome as nested folds, for single setting rows. */
-	private rowBox(parent: HTMLElement): HTMLElement {
-		return parent.createDiv({ cls: "beautiful-pdf-row-box" });
 	}
 
 	private numSetting(

@@ -1664,8 +1664,8 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.ui = {
-      pageOpen: false,
       specialOpen: false,
+      pageSizeOpen: false,
       marginsOpen: false,
       pageNumberOpen: false,
       headerFooterOpen: false,
@@ -1677,10 +1677,41 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
   }
   display() {
     const { containerEl } = this;
+    const scroll = this.captureScroll();
     containerEl.empty();
     containerEl.addClass("beautiful-pdf-settings");
     this.renderAll(containerEl);
+    this.restoreScroll(scroll);
     void listSystemFontFamilies();
+  }
+  /** Obsidian settings scroll pane — Windows resets this on full redraw. */
+  captureScroll() {
+    const pane = this.containerEl.closest(
+      ".vertical-tab-content"
+    );
+    if (pane)
+      return { el: pane, top: pane.scrollTop };
+    let el2 = this.containerEl;
+    while (el2) {
+      const { overflowY } = getComputedStyle(el2);
+      if ((overflowY === "auto" || overflowY === "scroll") && el2.scrollHeight > el2.clientHeight + 1) {
+        return { el: el2, top: el2.scrollTop };
+      }
+      el2 = el2.parentElement;
+    }
+    return null;
+  }
+  restoreScroll(scroll) {
+    if (!scroll)
+      return;
+    const apply = () => {
+      scroll.el.scrollTop = scroll.top;
+    };
+    apply();
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(apply);
+    });
   }
   renderAll(containerEl) {
     this.renderProfiles(containerEl);
@@ -1769,30 +1800,22 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
   }
   /* ---------- Page ---------- */
   renderPageSection(containerEl) {
+    var _a;
     const page = getActiveProfile(this.plugin.settings).page;
     page.lineHeight = toLineHeightPercent(page.lineHeight);
-    const summary = `${page.pageSize} \xB7 margins ${page.marginTopMm}/${page.marginBottomMm}/${page.marginLeftMm}/${page.marginRightMm}mm`;
+    const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
+    new import_obsidian5.Setting(section).setName("Page").setHeading();
+    const sizeSummary = page.pageSize === "Custom" ? `Custom ${page.pageWidthMm}\xD7${page.pageHeightMm} mm` : page.pageSize;
     this.collapsible(
-      containerEl,
-      "Page",
-      summary,
-      this.ui.pageOpen,
+      section,
+      "Page size",
+      sizeSummary,
+      this.ui.pageSizeOpen,
       (open) => {
-        this.ui.pageOpen = open;
+        this.ui.pageSizeOpen = open;
       },
       (body) => {
-        var _a;
-        const titleToggle = this.rowBox(body);
-        new import_obsidian5.Setting(titleToggle).setName("Use filename as title").addToggle(
-          (tg) => tg.setValue(page.useFilenameAsTitle).onChange((v) => {
-            void (async () => {
-              page.useFilenameAsTitle = v;
-              await this.plugin.saveSettings();
-            })();
-          })
-        );
-        const sizeBox = this.rowBox(body);
-        new import_obsidian5.Setting(sizeBox).setName("Page size").addDropdown((dd) => {
+        new import_obsidian5.Setting(body).setName("Size").addDropdown((dd) => {
           ["A4", "Letter", "Legal", "Custom"].forEach((s) => {
             dd.addOption(s, s);
           });
@@ -1805,164 +1828,167 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
           });
         });
         if (page.pageSize === "Custom") {
-          const customBox = this.rowBox(body);
-          this.numSetting(customBox, "Width (mm)", page.pageWidthMm, async (n) => {
+          this.numSetting(body, "Width (mm)", page.pageWidthMm, async (n) => {
             page.pageWidthMm = n;
           });
-          this.numSetting(customBox, "Height (mm)", page.pageHeightMm, async (n) => {
+          this.numSetting(body, "Height (mm)", page.pageHeightMm, async (n) => {
             page.pageHeightMm = n;
           });
         }
-        this.collapsible(
-          body,
-          "Margins",
-          `${page.marginTopMm} / ${page.marginBottomMm} / ${page.marginLeftMm} / ${page.marginRightMm} mm`,
-          this.ui.marginsOpen,
-          (o) => {
-            this.ui.marginsOpen = o;
-          },
-          (inner) => {
-            this.numSetting(inner, "Top (mm)", page.marginTopMm, async (n) => {
-              page.marginTopMm = n;
-            });
-            this.numSetting(inner, "Bottom (mm)", page.marginBottomMm, async (n) => {
-              page.marginBottomMm = n;
-            });
-            this.numSetting(inner, "Left (mm)", page.marginLeftMm, async (n) => {
-              page.marginLeftMm = n;
-            });
-            this.numSetting(inner, "Right (mm)", page.marginRightMm, async (n) => {
-              page.marginRightMm = n;
-            });
-          },
-          true
+      }
+    );
+    this.collapsible(
+      section,
+      "Margins",
+      `${page.marginTopMm} / ${page.marginBottomMm} / ${page.marginLeftMm} / ${page.marginRightMm} mm`,
+      this.ui.marginsOpen,
+      (o) => {
+        this.ui.marginsOpen = o;
+      },
+      (inner) => {
+        this.numSetting(inner, "Top (mm)", page.marginTopMm, async (n) => {
+          page.marginTopMm = n;
+        });
+        this.numSetting(inner, "Bottom (mm)", page.marginBottomMm, async (n) => {
+          page.marginBottomMm = n;
+        });
+        this.numSetting(inner, "Left (mm)", page.marginLeftMm, async (n) => {
+          page.marginLeftMm = n;
+        });
+        this.numSetting(inner, "Right (mm)", page.marginRightMm, async (n) => {
+          page.marginRightMm = n;
+        });
+      }
+    );
+    const pnLabel = (_a = {
+      none: "None",
+      "bottom-center": "Bottom center",
+      "bottom-right": "Bottom right",
+      "top-center": "Top center"
+    }[page.pageNumber]) != null ? _a : page.pageNumber;
+    this.collapsible(
+      section,
+      "Page numbers",
+      pnLabel,
+      this.ui.pageNumberOpen,
+      (o) => {
+        this.ui.pageNumberOpen = o;
+      },
+      (inner) => {
+        new import_obsidian5.Setting(inner).setName("Position").addDropdown((dd) => {
+          const opts = {
+            none: "None",
+            "bottom-center": "Bottom center",
+            "bottom-right": "Bottom right",
+            "top-center": "Top center"
+          };
+          Object.keys(opts).forEach((k) => {
+            dd.addOption(k, opts[k]);
+          });
+          dd.setValue(page.pageNumber).onChange((v) => {
+            void (async () => {
+              page.pageNumber = v;
+              await this.plugin.saveSettings();
+              this.display();
+            })();
+          });
+        });
+        new import_obsidian5.Setting(inner).setName("Format").addText(
+          (t) => t.setPlaceholder("{page} / {pages}").setValue(page.pageNumberFormat).onChange((v) => {
+            void (async () => {
+              page.pageNumberFormat = v;
+              await this.plugin.saveSettings();
+            })();
+          })
         );
-        const pnLabel = (_a = {
-          none: "None",
-          "bottom-center": "Bottom center",
-          "bottom-right": "Bottom right",
-          "top-center": "Top center"
-        }[page.pageNumber]) != null ? _a : page.pageNumber;
-        this.collapsible(
-          body,
-          "Page numbers",
-          pnLabel,
-          this.ui.pageNumberOpen,
-          (o) => {
-            this.ui.pageNumberOpen = o;
-          },
-          (inner) => {
-            new import_obsidian5.Setting(inner).setName("Position").addDropdown((dd) => {
-              const opts = {
-                none: "None",
-                "bottom-center": "Bottom center",
-                "bottom-right": "Bottom right",
-                "top-center": "Top center"
-              };
-              Object.keys(opts).forEach((k) => {
-                dd.addOption(k, opts[k]);
-              });
-              dd.setValue(page.pageNumber).onChange((v) => {
-                void (async () => {
-                  page.pageNumber = v;
-                  await this.plugin.saveSettings();
-                  this.display();
-                })();
-              });
-            });
-            new import_obsidian5.Setting(inner).setName("Format").addText(
-              (t) => t.setPlaceholder("{page} / {pages}").setValue(page.pageNumberFormat).onChange((v) => {
-                void (async () => {
-                  page.pageNumberFormat = v;
-                  await this.plugin.saveSettings();
-                })();
-              })
-            );
-          },
-          true
+      }
+    );
+    const hfSummary = [
+      page.headerText ? `Header (${page.headerAlign})` : null,
+      page.footerText ? `Footer (${page.footerAlign})` : null
+    ].filter(Boolean).join(" \xB7 ") || "None";
+    this.collapsible(
+      section,
+      "Header \xB7 footer",
+      hfSummary,
+      this.ui.headerFooterOpen,
+      (o) => {
+        this.ui.headerFooterOpen = o;
+      },
+      (inner) => {
+        new import_obsidian5.Setting(inner).setName("Header text").addText(
+          (t) => t.setValue(page.headerText).onChange((v) => {
+            void (async () => {
+              page.headerText = v;
+              await this.plugin.saveSettings();
+            })();
+          })
         );
-        const hfSummary = [
-          page.headerText ? `Header (${page.headerAlign})` : null,
-          page.footerText ? `Footer (${page.footerAlign})` : null
-        ].filter(Boolean).join(" \xB7 ") || "None";
-        this.collapsible(
-          body,
-          "Header \xB7 footer",
-          hfSummary,
-          this.ui.headerFooterOpen,
-          (o) => {
-            this.ui.headerFooterOpen = o;
-          },
-          (inner) => {
-            new import_obsidian5.Setting(inner).setName("Header text").addText(
-              (t) => t.setValue(page.headerText).onChange((v) => {
-                void (async () => {
-                  page.headerText = v;
-                  await this.plugin.saveSettings();
-                })();
-              })
-            );
-            new import_obsidian5.Setting(inner).setName("Header align").addDropdown((dd) => {
-              var _a2;
-              this.addHfAlignOptions(dd);
-              dd.setValue((_a2 = page.headerAlign) != null ? _a2 : "left").onChange((v) => {
-                void (async () => {
-                  page.headerAlign = v;
-                  await this.plugin.saveSettings();
-                })();
-              });
-            });
-            new import_obsidian5.Setting(inner).setName("Footer text").addText(
-              (t) => t.setValue(page.footerText).onChange((v) => {
-                void (async () => {
-                  page.footerText = v;
-                  await this.plugin.saveSettings();
-                })();
-              })
-            );
-            new import_obsidian5.Setting(inner).setName("Footer align").addDropdown((dd) => {
-              var _a2;
-              this.addHfAlignOptions(dd);
-              dd.setValue((_a2 = page.footerAlign) != null ? _a2 : "center").onChange((v) => {
-                void (async () => {
-                  page.footerAlign = v;
-                  await this.plugin.saveSettings();
-                })();
-              });
-            });
-          },
-          true
+        new import_obsidian5.Setting(inner).setName("Header align").addDropdown((dd) => {
+          var _a2;
+          this.addHfAlignOptions(dd);
+          dd.setValue((_a2 = page.headerAlign) != null ? _a2 : "left").onChange((v) => {
+            void (async () => {
+              page.headerAlign = v;
+              await this.plugin.saveSettings();
+            })();
+          });
+        });
+        new import_obsidian5.Setting(inner).setName("Footer text").addText(
+          (t) => t.setValue(page.footerText).onChange((v) => {
+            void (async () => {
+              page.footerText = v;
+              await this.plugin.saveSettings();
+            })();
+          })
         );
-        this.collapsible(
-          body,
-          "More",
-          `Line height ${page.lineHeight}% \xB7 background ${page.printBackground ? "on" : "off"}`,
-          this.ui.morePageOpen,
-          (o) => {
-            this.ui.morePageOpen = o;
-          },
-          (inner) => {
-            new import_obsidian5.Setting(inner).setName("Default line height (%)").addText(
-              (t) => t.setValue(String(page.lineHeight)).onChange((v) => {
-                void (async () => {
-                  const n = parseFloat(v);
-                  if (!Number.isNaN(n) && n > 0) {
-                    page.lineHeight = toLineHeightPercent(n);
-                    await this.plugin.saveSettings();
-                  }
-                })();
-              })
-            );
-            new import_obsidian5.Setting(inner).setName("Print background").addToggle(
-              (tg) => tg.setValue(page.printBackground).onChange((v) => {
-                void (async () => {
-                  page.printBackground = v;
-                  await this.plugin.saveSettings();
-                })();
-              })
-            );
-          },
-          true
+        new import_obsidian5.Setting(inner).setName("Footer align").addDropdown((dd) => {
+          var _a2;
+          this.addHfAlignOptions(dd);
+          dd.setValue((_a2 = page.footerAlign) != null ? _a2 : "center").onChange((v) => {
+            void (async () => {
+              page.footerAlign = v;
+              await this.plugin.saveSettings();
+            })();
+          });
+        });
+      }
+    );
+    this.collapsible(
+      section,
+      "More",
+      `Line height ${page.lineHeight}% \xB7 background ${page.printBackground ? "on" : "off"}`,
+      this.ui.morePageOpen,
+      (o) => {
+        this.ui.morePageOpen = o;
+      },
+      (inner) => {
+        new import_obsidian5.Setting(inner).setName("Use filename as title").addToggle(
+          (tg) => tg.setValue(page.useFilenameAsTitle).onChange((v) => {
+            void (async () => {
+              page.useFilenameAsTitle = v;
+              await this.plugin.saveSettings();
+            })();
+          })
+        );
+        new import_obsidian5.Setting(inner).setName("Default line height (%)").addText(
+          (t) => t.setValue(String(page.lineHeight)).onChange((v) => {
+            void (async () => {
+              const n = parseFloat(v);
+              if (!Number.isNaN(n) && n > 0) {
+                page.lineHeight = toLineHeightPercent(n);
+                await this.plugin.saveSettings();
+              }
+            })();
+          })
+        );
+        new import_obsidian5.Setting(inner).setName("Print background").addToggle(
+          (tg) => tg.setValue(page.printBackground).onChange((v) => {
+            void (async () => {
+              page.printBackground = v;
+              await this.plugin.saveSettings();
+            })();
+          })
         );
       }
     );
@@ -1977,9 +2003,11 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
     const profile = getActiveProfile(this.plugin.settings);
     const special = profile.special;
     const summary = special.styleOrderedListsAsHeadings ? `Ordered lists \u2192 H${special.orderedListHeadingLevel1}/H${special.orderedListHeadingLevel2}/H${special.orderedListHeadingLevel3}` : "Off";
+    const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
+    new import_obsidian5.Setting(section).setName("Special options").setHeading();
     this.collapsible(
-      containerEl,
-      "Special options",
+      section,
+      "Numbered lists as headings",
       summary,
       this.ui.specialOpen,
       (open) => {
@@ -1990,8 +2018,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
         tip.appendText(
           "PDF-only. Write normal numbered lists (1. 2. 3.) in the note \u2014 Obsidian keeps auto-numbering. In the PDF those items use a heading style; # headings and body text stay as usual."
         );
-        const enableBox = this.rowBox(body);
-        new import_obsidian5.Setting(enableBox).setName("Style numbered lists as headings").setDesc("Apply heading look to ordered-list items in the PDF only").addToggle(
+        new import_obsidian5.Setting(body).setName("Enable").setDesc("Apply heading look to ordered-list items in the PDF only").addToggle(
           (tg) => tg.setValue(special.styleOrderedListsAsHeadings).onChange((v) => {
             void (async () => {
               special.styleOrderedListsAsHeadings = v;
@@ -2002,9 +2029,8 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
         );
         if (!special.styleOrderedListsAsHeadings)
           return;
-        const levelBox = this.rowBox(body);
         const addLevel = (name, key) => {
-          new import_obsidian5.Setting(levelBox).setName(name).addDropdown((dd) => {
+          new import_obsidian5.Setting(body).setName(name).addDropdown((dd) => {
             for (let i = 1; i <= 6; i++)
               dd.addOption(String(i), `H${i} style`);
             dd.setValue(String(special[key])).onChange((v) => {
@@ -2285,9 +2311,9 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
       applyFramePreview(sample, "embed", style);
     }
   }
-  collapsible(parent, title, summary, open, setOpen, renderBody, nested = false) {
+  collapsible(parent, title, summary, open, setOpen, renderBody) {
     const box = parent.createDiv({
-      cls: "beautiful-pdf-fold" + (nested ? " is-nested" : "") + (open ? " is-open" : "")
+      cls: "beautiful-pdf-fold" + (open ? " is-open" : "")
     });
     const head = box.createDiv({ cls: "beautiful-pdf-fold-head" });
     head.createSpan({ cls: "beautiful-pdf-fold-title", text: title });
@@ -2303,10 +2329,6 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
       const body = box.createDiv({ cls: "beautiful-pdf-fold-body" });
       renderBody(body);
     }
-  }
-  /** Same outer card chrome as nested folds, for single setting rows. */
-  rowBox(parent) {
-    return parent.createDiv({ cls: "beautiful-pdf-row-box" });
   }
   numSetting(containerEl, name, value, onChange) {
     new import_obsidian5.Setting(containerEl).setName(name).addText(
