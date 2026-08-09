@@ -1269,33 +1269,203 @@ var import_obsidian5 = require("obsidian");
 // src/fonts.ts
 var import_obsidian4 = require("obsidian");
 var FALLBACK_FONTS = [
-  "Apple SD Gothic Neo",
-  "AppleGothic",
   "Arial",
+  "Calibri",
+  "Cambria",
+  "Comic Sans MS",
+  "Consolas",
   "Courier New",
   "Georgia",
-  "Helvetica Neue",
   "KoPubWorld Batang",
   "KoPubWorld Dotum",
   "Malgun Gothic",
-  "Menlo",
-  "Monaco",
   "Noto Sans KR",
   "Noto Serif KR",
   "Pretendard",
-  "SF Mono",
-  "SF Pro Text",
-  "Songti SC",
+  "Segoe UI",
+  "Tahoma",
   "Times New Roman",
+  "Verdana",
   "ui-monospace",
   "ui-sans-serif",
   "ui-serif"
-].sort((a, b) => a.localeCompare(b));
+];
 var cachedFamilies = null;
 var loading = null;
+function getNodeRequire2() {
+  const win = window;
+  return typeof win.require === "function" ? win.require : null;
+}
 function getQueryLocalFonts() {
   const fn = window.queryLocalFonts;
   return typeof fn === "function" ? fn.bind(window) : null;
+}
+function getPlatform() {
+  var _a;
+  try {
+    const req = getNodeRequire2();
+    if (!req)
+      return null;
+    const proc = req("process");
+    return (_a = proc.platform) != null ? _a : null;
+  } catch (e) {
+    return null;
+  }
+}
+function uniqSorted(names) {
+  const set = /* @__PURE__ */ new Set();
+  for (const n of names) {
+    const t = n.trim();
+    if (t)
+      set.add(t);
+  }
+  return Array.from(set).sort(
+    (a, b) => a.localeCompare(b, void 0, { sensitivity: "base" })
+  );
+}
+async function listFromQueryLocalFonts() {
+  const query = getQueryLocalFonts();
+  if (!query)
+    return [];
+  try {
+    const fonts = await query();
+    return fonts.map((f) => (f.family || "").trim()).filter(Boolean);
+  } catch (err) {
+    console.warn("Beautiful PDF: queryLocalFonts failed", err);
+    return [];
+  }
+}
+async function listFromWindows() {
+  const req = getNodeRequire2();
+  if (!req)
+    return [];
+  try {
+    const child = req("child_process");
+    const ps = [
+      "$ErrorActionPreference = 'SilentlyContinue'",
+      "Add-Type -AssemblyName System.Drawing",
+      "$names = New-Object 'System.Collections.Generic.HashSet[string]'",
+      "$coll = New-Object System.Drawing.Text.InstalledFontCollection",
+      "foreach ($f in $coll.Families) { [void]$names.Add($f.Name) }",
+      "# Also read font registry display names (file \u2192 family label)",
+      "$keys = @(",
+      "  'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts',",
+      "  'HKCU:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'",
+      ")",
+      "foreach ($k in $keys) {",
+      "  if (-not (Test-Path $k)) { continue }",
+      "  $props = Get-ItemProperty -Path $k",
+      "  foreach ($p in $props.PSObject.Properties) {",
+      "    if ($p.Name -match '^(PSPath|PSParentPath|PSChildName|PSDrive|PSProvider)$') { continue }",
+      "    $label = ($p.Name -replace '\\s*\\(TrueType\\)\\s*$','' -replace '\\s*\\(OpenType\\)\\s*$','').Trim()",
+      "    if ($label) { [void]$names.Add($label) }",
+      "  }",
+      "}",
+      "$names | Sort-Object"
+    ].join("; ");
+    const stdout = await new Promise((resolve, reject) => {
+      child.execFile(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps],
+        {
+          encoding: "utf8",
+          windowsHide: true,
+          timeout: 2e4,
+          maxBuffer: 16 * 1024 * 1024
+        },
+        (err, out) => {
+          if (err)
+            reject(err);
+          else
+            resolve(out || "");
+        }
+      );
+    });
+    return stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  } catch (err) {
+    console.warn("Beautiful PDF: Windows font enumeration failed", err);
+    return [];
+  }
+}
+async function listFromMac() {
+  var _a;
+  const req = getNodeRequire2();
+  if (!req)
+    return [];
+  try {
+    const child = req("child_process");
+    const stdout = await new Promise((resolve, reject) => {
+      child.execFile(
+        "/usr/sbin/system_profiler",
+        ["SPFontsDataType", "-json"],
+        {
+          encoding: "utf8",
+          timeout: 3e4,
+          maxBuffer: 32 * 1024 * 1024
+        },
+        (err, out) => {
+          if (err)
+            reject(err);
+          else
+            resolve(out || "");
+        }
+      );
+    });
+    const data = JSON.parse(stdout);
+    const names = [];
+    for (const item of (_a = data.SPFontsDataType) != null ? _a : []) {
+      const type = (item.type || item._name || "").trim();
+      if (type)
+        names.push(type);
+    }
+    return names;
+  } catch (err) {
+    console.warn("Beautiful PDF: macOS font enumeration failed", err);
+    return [];
+  }
+}
+async function listFromLinux() {
+  const req = getNodeRequire2();
+  if (!req)
+    return [];
+  try {
+    const child = req("child_process");
+    const stdout = await new Promise((resolve, reject) => {
+      child.execFile(
+        "fc-list",
+        [":", "family"],
+        { encoding: "utf8", timeout: 15e3, maxBuffer: 16 * 1024 * 1024 },
+        (err, out) => {
+          if (err)
+            reject(err);
+          else
+            resolve(out || "");
+        }
+      );
+    });
+    const names = [];
+    for (const line of stdout.split(/\r?\n/)) {
+      for (const part of line.split(",")) {
+        const t = part.trim();
+        if (t)
+          names.push(t);
+      }
+    }
+    return names;
+  } catch (err) {
+    console.warn("Beautiful PDF: Linux font enumeration failed", err);
+    return [];
+  }
+}
+async function listFromPlatform() {
+  const platform = getPlatform();
+  if (platform === "win32")
+    return listFromWindows();
+  if (platform === "darwin")
+    return listFromMac();
+  if (platform === "linux")
+    return listFromLinux();
+  return [];
 }
 async function listSystemFontFamilies() {
   if (cachedFamilies)
@@ -1303,34 +1473,21 @@ async function listSystemFontFamilies() {
   if (loading)
     return loading;
   loading = (async () => {
-    const query = getQueryLocalFonts();
-    if (!query) {
-      cachedFamilies = FALLBACK_FONTS.slice();
-      return cachedFamilies;
-    }
-    try {
-      const fonts = await query();
-      const set = /* @__PURE__ */ new Set();
-      for (const f of fonts) {
-        const family = (f.family || "").trim();
-        if (family)
-          set.add(family);
-      }
-      for (const f of FALLBACK_FONTS)
-        set.add(f);
-      cachedFamilies = Array.from(set).sort(
-        (a, b) => a.localeCompare(b, void 0, { sensitivity: "base" })
-      );
-      return cachedFamilies;
-    } catch (err) {
-      console.warn("Beautiful PDF: queryLocalFonts failed", err);
-      cachedFamilies = FALLBACK_FONTS.slice();
-      return cachedFamilies;
-    } finally {
-      loading = null;
-    }
-  })();
+    const [fromApi, fromOs] = await Promise.all([
+      listFromQueryLocalFonts(),
+      listFromPlatform()
+    ]);
+    const merged = uniqSorted([...fromApi, ...fromOs, ...FALLBACK_FONTS]);
+    cachedFamilies = merged.length > 0 ? merged : FALLBACK_FONTS.slice().sort();
+    return cachedFamilies;
+  })().finally(() => {
+    loading = null;
+  });
   return loading;
+}
+function clearFontCache() {
+  cachedFamilies = null;
+  loading = null;
 }
 var FontSuggestModal = class extends import_obsidian4.FuzzySuggestModal {
   constructor(app, fonts, onPick) {
@@ -1361,6 +1518,7 @@ var FontSuggestModal = class extends import_obsidian4.FuzzySuggestModal {
   }
 };
 async function openFontPicker(app, onPick) {
+  clearFontCache();
   const fonts = await listSystemFontFamilies();
   if (fonts.length === 0) {
     new import_obsidian4.Notice("Beautiful PDF: no fonts found on this system.");

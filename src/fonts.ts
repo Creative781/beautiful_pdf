@@ -9,72 +9,260 @@ interface LocalFontData {
 
 type QueryLocalFonts = () => Promise<LocalFontData[]>;
 
-/** Sensible fallbacks when Local Font Access API is unavailable. */
+type NodeRequireFn = (id: string) => unknown;
+
+/** Sensible fallbacks when enumeration APIs fail. */
 const FALLBACK_FONTS = [
-	"Apple SD Gothic Neo",
-	"AppleGothic",
 	"Arial",
+	"Calibri",
+	"Cambria",
+	"Comic Sans MS",
+	"Consolas",
 	"Courier New",
 	"Georgia",
-	"Helvetica Neue",
 	"KoPubWorld Batang",
 	"KoPubWorld Dotum",
 	"Malgun Gothic",
-	"Menlo",
-	"Monaco",
 	"Noto Sans KR",
 	"Noto Serif KR",
 	"Pretendard",
-	"SF Mono",
-	"SF Pro Text",
-	"Songti SC",
+	"Segoe UI",
+	"Tahoma",
 	"Times New Roman",
+	"Verdana",
 	"ui-monospace",
 	"ui-sans-serif",
 	"ui-serif",
-].sort((a, b) => a.localeCompare(b));
+];
 
 let cachedFamilies: string[] | null = null;
 let loading: Promise<string[]> | null = null;
 
+function getNodeRequire(): NodeRequireFn | null {
+	const win = window as Window & { require?: NodeRequireFn };
+	return typeof win.require === "function" ? win.require : null;
+}
+
 function getQueryLocalFonts(): QueryLocalFonts | null {
-	const fn = (window as Window & { queryLocalFonts?: QueryLocalFonts }).queryLocalFonts;
+	const fn = (window as Window & { queryLocalFonts?: QueryLocalFonts })
+		.queryLocalFonts;
 	return typeof fn === "function" ? fn.bind(window) : null;
 }
 
-/** Unique installed font family names (desktop Chromium / Electron). */
+function getPlatform(): NodeJS.Platform | null {
+	try {
+		const req = getNodeRequire();
+		if (!req) return null;
+		const proc = req("process") as { platform?: NodeJS.Platform };
+		return proc.platform ?? null;
+	} catch {
+		return null;
+	}
+}
+
+function uniqSorted(names: Iterable<string>): string[] {
+	const set = new Set<string>();
+	for (const n of names) {
+		const t = n.trim();
+		if (t) set.add(t);
+	}
+	return Array.from(set).sort((a, b) =>
+		a.localeCompare(b, undefined, { sensitivity: "base" }),
+	);
+}
+
+async function listFromQueryLocalFonts(): Promise<string[]> {
+	const query = getQueryLocalFonts();
+	if (!query) return [];
+	try {
+		const fonts = await query();
+		return fonts.map((f) => (f.family || "").trim()).filter(Boolean);
+	} catch (err) {
+		console.warn("Beautiful PDF: queryLocalFonts failed", err);
+		return [];
+	}
+}
+
+/**
+ * Windows: System.Drawing InstalledFontCollection via PowerShell.
+ * Chromium queryLocalFonts often omits user-installed / some CJK families.
+ */
+async function listFromWindows(): Promise<string[]> {
+	const req = getNodeRequire();
+	if (!req) return [];
+	try {
+		const child = req("child_process") as {
+			execFile: (
+				file: string,
+				args: string[],
+				opts: Record<string, unknown>,
+				cb: (err: Error | null, stdout: string, stderr: string) => void,
+			) => void;
+		};
+		const ps = [
+			"$ErrorActionPreference = 'SilentlyContinue'",
+			"Add-Type -AssemblyName System.Drawing",
+			"$names = New-Object 'System.Collections.Generic.HashSet[string]'",
+			"$coll = New-Object System.Drawing.Text.InstalledFontCollection",
+			"foreach ($f in $coll.Families) { [void]$names.Add($f.Name) }",
+			"# Also read font registry display names (file → family label)",
+			"$keys = @(",
+			"  'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts',",
+			"  'HKCU:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'",
+			")",
+			"foreach ($k in $keys) {",
+			"  if (-not (Test-Path $k)) { continue }",
+			"  $props = Get-ItemProperty -Path $k",
+			"  foreach ($p in $props.PSObject.Properties) {",
+			"    if ($p.Name -match '^(PSPath|PSParentPath|PSChildName|PSDrive|PSProvider)$') { continue }",
+			"    $label = ($p.Name -replace '\\s*\\(TrueType\\)\\s*$','' -replace '\\s*\\(OpenType\\)\\s*$','').Trim()",
+			"    if ($label) { [void]$names.Add($label) }",
+			"  }",
+			"}",
+			"$names | Sort-Object",
+		].join("; ");
+
+		const stdout = await new Promise<string>((resolve, reject) => {
+			child.execFile(
+				"powershell.exe",
+				["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps],
+				{
+					encoding: "utf8",
+					windowsHide: true,
+					timeout: 20000,
+					maxBuffer: 16 * 1024 * 1024,
+				},
+				(err, out) => {
+					if (err) reject(err);
+					else resolve(out || "");
+				},
+			);
+		});
+
+		return stdout
+			.split(/\r?\n/)
+			.map((s) => s.trim())
+			.filter(Boolean);
+	} catch (err) {
+		console.warn("Beautiful PDF: Windows font enumeration failed", err);
+		return [];
+	}
+}
+
+/** macOS: system_profiler font database (supplements queryLocalFonts). */
+async function listFromMac(): Promise<string[]> {
+	const req = getNodeRequire();
+	if (!req) return [];
+	try {
+		const child = req("child_process") as {
+			execFile: (
+				file: string,
+				args: string[],
+				opts: Record<string, unknown>,
+				cb: (err: Error | null, stdout: string, stderr: string) => void,
+			) => void;
+		};
+		const stdout = await new Promise<string>((resolve, reject) => {
+			child.execFile(
+				"/usr/sbin/system_profiler",
+				["SPFontsDataType", "-json"],
+				{
+					encoding: "utf8",
+					timeout: 30000,
+					maxBuffer: 32 * 1024 * 1024,
+				},
+				(err, out) => {
+					if (err) reject(err);
+					else resolve(out || "");
+				},
+			);
+		});
+		const data = JSON.parse(stdout) as {
+			SPFontsDataType?: Array<{ type?: string; _name?: string }>;
+		};
+		const names: string[] = [];
+		for (const item of data.SPFontsDataType ?? []) {
+			// Prefer full typeface family label when present
+			const type = (item.type || item._name || "").trim();
+			if (type) names.push(type);
+		}
+		return names;
+	} catch (err) {
+		console.warn("Beautiful PDF: macOS font enumeration failed", err);
+		return [];
+	}
+}
+
+/** Linux: fontconfig family list. */
+async function listFromLinux(): Promise<string[]> {
+	const req = getNodeRequire();
+	if (!req) return [];
+	try {
+		const child = req("child_process") as {
+			execFile: (
+				file: string,
+				args: string[],
+				opts: Record<string, unknown>,
+				cb: (err: Error | null, stdout: string, stderr: string) => void,
+			) => void;
+		};
+		const stdout = await new Promise<string>((resolve, reject) => {
+			child.execFile(
+				"fc-list",
+				[":", "family"],
+				{ encoding: "utf8", timeout: 15000, maxBuffer: 16 * 1024 * 1024 },
+				(err, out) => {
+					if (err) reject(err);
+					else resolve(out || "");
+				},
+			);
+		});
+		const names: string[] = [];
+		for (const line of stdout.split(/\r?\n/)) {
+			for (const part of line.split(",")) {
+				const t = part.trim();
+				if (t) names.push(t);
+			}
+		}
+		return names;
+	} catch (err) {
+		console.warn("Beautiful PDF: Linux font enumeration failed", err);
+		return [];
+	}
+}
+
+async function listFromPlatform(): Promise<string[]> {
+	const platform = getPlatform();
+	if (platform === "win32") return listFromWindows();
+	if (platform === "darwin") return listFromMac();
+	if (platform === "linux") return listFromLinux();
+	return [];
+}
+
+/** Unique installed font family names (Chromium API + OS enumeration). */
 export async function listSystemFontFamilies(): Promise<string[]> {
 	if (cachedFamilies) return cachedFamilies;
 	if (loading) return loading;
 
 	loading = (async () => {
-		const query = getQueryLocalFonts();
-		if (!query) {
-			cachedFamilies = FALLBACK_FONTS.slice();
-			return cachedFamilies;
-		}
-		try {
-			const fonts = await query();
-			const set = new Set<string>();
-			for (const f of fonts) {
-				const family = (f.family || "").trim();
-				if (family) set.add(family);
-			}
-			for (const f of FALLBACK_FONTS) set.add(f);
-			cachedFamilies = Array.from(set).sort((a, b) =>
-				a.localeCompare(b, undefined, { sensitivity: "base" }),
-			);
-			return cachedFamilies;
-		} catch (err) {
-			console.warn("Beautiful PDF: queryLocalFonts failed", err);
-			cachedFamilies = FALLBACK_FONTS.slice();
-			return cachedFamilies;
-		} finally {
-			loading = null;
-		}
-	})();
+		const [fromApi, fromOs] = await Promise.all([
+			listFromQueryLocalFonts(),
+			listFromPlatform(),
+		]);
+		const merged = uniqSorted([...fromApi, ...fromOs, ...FALLBACK_FONTS]);
+		cachedFamilies = merged.length > 0 ? merged : FALLBACK_FONTS.slice().sort();
+		return cachedFamilies;
+	})().finally(() => {
+		loading = null;
+	});
 
 	return loading;
+}
+
+/** Force a fresh scan (e.g. after installing fonts). */
+export function clearFontCache(): void {
+	cachedFamilies = null;
+	loading = null;
 }
 
 /** Searchable picker; each row previews in its own typeface. */
@@ -119,6 +307,8 @@ export async function openFontPicker(
 	app: App,
 	onPick: (font: string) => void,
 ): Promise<void> {
+	// Always rescan so newly installed Windows fonts appear.
+	clearFontCache();
 	const fonts = await listSystemFontFamilies();
 	if (fonts.length === 0) {
 		new Notice("Beautiful PDF: no fonts found on this system.");
