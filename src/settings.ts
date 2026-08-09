@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting, TextComponent } from "obsidian";
 import type BeautifulPdfPlugin from "./main";
+import { listSystemFontFamilies, openFontPicker } from "./fonts";
 import {
 	cloneProfile,
 	createBlankProfile,
@@ -56,6 +57,8 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		containerEl.empty();
 		containerEl.addClass("beautiful-pdf-settings");
 		this.renderAll(containerEl);
+		// Warm the system font cache for the Choose… picker
+		void listSystemFontFamilies();
 	}
 
 	private renderAll(containerEl: HTMLElement): void {
@@ -476,17 +479,28 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 				});
 		}
 
-		new Setting(editors)
-			.setName("Font")
-			.addText((t) =>
-				t.setValue(style.fontFamily).onChange((v) => {
+		const fontSetting = new Setting(editors).setName("Font");
+		let fontText: TextComponent | null = null;
+		fontSetting.addText((t) => {
+			fontText = t;
+			t.setPlaceholder("Font family");
+			t.setValue(style.fontFamily).onChange((v) => {
 				void (async () => {
 					style.fontFamily = v;
 					await this.plugin.saveSettings();
 					refreshPreview();
 				})();
+			});
+		});
+		fontSetting.addButton((btn) =>
+			btn.setButtonText("Choose…").onClick(() => {
+				void openFontPicker(this.app, (font) => {
+					style.fontFamily = font;
+					fontText?.setValue(font);
+					void this.plugin.saveSettings().then(() => refreshPreview());
+				});
 			}),
-			);
+		);
 
 		new Setting(editors)
 			.setName("Size (pt)")

@@ -27,7 +27,7 @@ __export(main_exports, {
   default: () => BeautifulPdfPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/export.ts
 var import_obsidian2 = require("obsidian");
@@ -1264,7 +1264,109 @@ var ProfileSuggestModal = class extends import_obsidian3.Modal {
 };
 
 // src/settings.ts
+var import_obsidian5 = require("obsidian");
+
+// src/fonts.ts
 var import_obsidian4 = require("obsidian");
+var FALLBACK_FONTS = [
+  "Apple SD Gothic Neo",
+  "AppleGothic",
+  "Arial",
+  "Courier New",
+  "Georgia",
+  "Helvetica Neue",
+  "KoPubWorld Batang",
+  "KoPubWorld Dotum",
+  "Malgun Gothic",
+  "Menlo",
+  "Monaco",
+  "Noto Sans KR",
+  "Noto Serif KR",
+  "Pretendard",
+  "SF Mono",
+  "SF Pro Text",
+  "Songti SC",
+  "Times New Roman",
+  "ui-monospace",
+  "ui-sans-serif",
+  "ui-serif"
+].sort((a, b) => a.localeCompare(b));
+var cachedFamilies = null;
+var loading = null;
+function getQueryLocalFonts() {
+  const fn = window.queryLocalFonts;
+  return typeof fn === "function" ? fn.bind(window) : null;
+}
+async function listSystemFontFamilies() {
+  if (cachedFamilies)
+    return cachedFamilies;
+  if (loading)
+    return loading;
+  loading = (async () => {
+    const query = getQueryLocalFonts();
+    if (!query) {
+      cachedFamilies = FALLBACK_FONTS.slice();
+      return cachedFamilies;
+    }
+    try {
+      const fonts = await query();
+      const set = /* @__PURE__ */ new Set();
+      for (const f of fonts) {
+        const family = (f.family || "").trim();
+        if (family)
+          set.add(family);
+      }
+      for (const f of FALLBACK_FONTS)
+        set.add(f);
+      cachedFamilies = Array.from(set).sort(
+        (a, b) => a.localeCompare(b, void 0, { sensitivity: "base" })
+      );
+      return cachedFamilies;
+    } catch (err) {
+      console.warn("Beautiful PDF: queryLocalFonts failed", err);
+      cachedFamilies = FALLBACK_FONTS.slice();
+      return cachedFamilies;
+    } finally {
+      loading = null;
+    }
+  })();
+  return loading;
+}
+var FontSuggestModal = class extends import_obsidian4.FuzzySuggestModal {
+  constructor(app, fonts, onPick) {
+    super(app);
+    this.fonts = fonts;
+    this.onPick = onPick;
+    this.setPlaceholder("Search installed fonts\u2026");
+    this.setInstructions([
+      { command: "\u2191\u2193", purpose: "navigate" },
+      { command: "\u21B5", purpose: "choose" },
+      { command: "esc", purpose: "close" }
+    ]);
+  }
+  getItems() {
+    return this.fonts;
+  }
+  getItemText(item) {
+    return item;
+  }
+  renderSuggestion(value, el2) {
+    super.renderSuggestion(value, el2);
+    const safe = value.item.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    el2.setCssStyles({ fontFamily: `"${safe}", sans-serif` });
+  }
+  onChooseItem(item) {
+    this.onPick(item);
+  }
+};
+async function openFontPicker(app, onPick) {
+  const fonts = await listSystemFontFamilies();
+  if (fonts.length === 0) {
+    new import_obsidian4.Notice("Beautiful PDF: no fonts found on this system.");
+    return;
+  }
+  new FontSuggestModal(app, fonts, onPick).open();
+}
 
 // src/types.ts
 var FRAME_PRESET_OPTIONS = [
@@ -1344,7 +1446,7 @@ var ELEMENTS_WITH_BACKGROUND = [
 var SETTINGS_VERSION = 3;
 
 // src/settings.ts
-var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
+var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.ui = {
@@ -1363,6 +1465,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
     containerEl.empty();
     containerEl.addClass("beautiful-pdf-settings");
     this.renderAll(containerEl);
+    void listSystemFontFamilies();
   }
   renderAll(containerEl) {
     this.renderProfiles(containerEl);
@@ -1379,7 +1482,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
   /* ---------- Profiles ---------- */
   renderProfiles(containerEl) {
     const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-    new import_obsidian4.Setting(section).setName("Document profiles").setHeading();
+    new import_obsidian5.Setting(section).setName("Document profiles").setHeading();
     const chips = section.createDiv({ cls: "beautiful-pdf-profile-chips" });
     for (const p of this.plugin.settings.profiles) {
       const chip = chips.createEl("button", {
@@ -1436,7 +1539,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
     });
     section.createEl("hr", { cls: "beautiful-pdf-divider" });
     const profile = getActiveProfile(this.plugin.settings);
-    new import_obsidian4.Setting(section).setName("Profile name").addText(
+    new import_obsidian5.Setting(section).setName("Profile name").addText(
       (text) => text.setValue(profile.name).onChange((v) => {
         void (async () => {
           profile.name = v.trim() || profile.name;
@@ -1464,7 +1567,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
       (body) => {
         var _a;
         const titleToggle = this.rowBox(body);
-        new import_obsidian4.Setting(titleToggle).setName("Use filename as title").addToggle(
+        new import_obsidian5.Setting(titleToggle).setName("Use filename as title").addToggle(
           (tg) => tg.setValue(page.useFilenameAsTitle).onChange((v) => {
             void (async () => {
               page.useFilenameAsTitle = v;
@@ -1473,7 +1576,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
           })
         );
         const sizeBox = this.rowBox(body);
-        new import_obsidian4.Setting(sizeBox).setName("Page size").addDropdown((dd) => {
+        new import_obsidian5.Setting(sizeBox).setName("Page size").addDropdown((dd) => {
           ["A4", "Letter", "Legal", "Custom"].forEach((s) => {
             dd.addOption(s, s);
           });
@@ -1533,7 +1636,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
             this.ui.pageNumberOpen = o;
           },
           (inner) => {
-            new import_obsidian4.Setting(inner).setName("Position").addDropdown((dd) => {
+            new import_obsidian5.Setting(inner).setName("Position").addDropdown((dd) => {
               const opts = {
                 none: "None",
                 "bottom-center": "Bottom center",
@@ -1551,7 +1654,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
                 })();
               });
             });
-            new import_obsidian4.Setting(inner).setName("Format").addText(
+            new import_obsidian5.Setting(inner).setName("Format").addText(
               (t) => t.setPlaceholder("{page} / {pages}").setValue(page.pageNumberFormat).onChange((v) => {
                 void (async () => {
                   page.pageNumberFormat = v;
@@ -1575,7 +1678,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
             this.ui.headerFooterOpen = o;
           },
           (inner) => {
-            new import_obsidian4.Setting(inner).setName("Header text").addText(
+            new import_obsidian5.Setting(inner).setName("Header text").addText(
               (t) => t.setValue(page.headerText).onChange((v) => {
                 void (async () => {
                   page.headerText = v;
@@ -1583,7 +1686,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
                 })();
               })
             );
-            new import_obsidian4.Setting(inner).setName("Header align").addDropdown((dd) => {
+            new import_obsidian5.Setting(inner).setName("Header align").addDropdown((dd) => {
               var _a2;
               this.addHfAlignOptions(dd);
               dd.setValue((_a2 = page.headerAlign) != null ? _a2 : "left").onChange((v) => {
@@ -1593,7 +1696,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
                 })();
               });
             });
-            new import_obsidian4.Setting(inner).setName("Footer text").addText(
+            new import_obsidian5.Setting(inner).setName("Footer text").addText(
               (t) => t.setValue(page.footerText).onChange((v) => {
                 void (async () => {
                   page.footerText = v;
@@ -1601,7 +1704,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
                 })();
               })
             );
-            new import_obsidian4.Setting(inner).setName("Footer align").addDropdown((dd) => {
+            new import_obsidian5.Setting(inner).setName("Footer align").addDropdown((dd) => {
               var _a2;
               this.addHfAlignOptions(dd);
               dd.setValue((_a2 = page.footerAlign) != null ? _a2 : "center").onChange((v) => {
@@ -1623,7 +1726,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
             this.ui.morePageOpen = o;
           },
           (inner) => {
-            new import_obsidian4.Setting(inner).setName("Default line height (%)").addText(
+            new import_obsidian5.Setting(inner).setName("Default line height (%)").addText(
               (t) => t.setValue(String(page.lineHeight)).onChange((v) => {
                 void (async () => {
                   const n = parseFloat(v);
@@ -1634,7 +1737,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
                 })();
               })
             );
-            new import_obsidian4.Setting(inner).setName("Print background").addToggle(
+            new import_obsidian5.Setting(inner).setName("Print background").addToggle(
               (tg) => tg.setValue(page.printBackground).onChange((v) => {
                 void (async () => {
                   page.printBackground = v;
@@ -1657,7 +1760,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
   renderElementsSection(containerEl) {
     var _a;
     const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-    new import_obsidian4.Setting(section).setName("Markdown elements").setHeading();
+    new import_obsidian5.Setting(section).setName("Markdown elements").setHeading();
     const elements = getActiveProfile(this.plugin.settings).elements;
     for (const group of ELEMENT_GROUPS) {
       const open = (_a = this.ui.groupOpen[group.id]) != null ? _a : false;
@@ -1703,7 +1806,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
     const editors = row.createDiv({ cls: "beautiful-pdf-el-editors" });
     const refreshPreview = () => this.paintPreview(preview, key, style);
     if (ELEMENTS_WITH_FRAME.includes(key)) {
-      new import_obsidian4.Setting(editors).setName("Box style").addDropdown((dd) => {
+      new import_obsidian5.Setting(editors).setName("Box style").addDropdown((dd) => {
         var _a2;
         for (const opt of FRAME_PRESET_OPTIONS) {
           dd.addOption(opt.id, opt.label);
@@ -1717,16 +1820,29 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
         });
       });
     }
-    new import_obsidian4.Setting(editors).setName("Font").addText(
-      (t) => t.setValue(style.fontFamily).onChange((v) => {
+    const fontSetting = new import_obsidian5.Setting(editors).setName("Font");
+    let fontText = null;
+    fontSetting.addText((t) => {
+      fontText = t;
+      t.setPlaceholder("Font family");
+      t.setValue(style.fontFamily).onChange((v) => {
         void (async () => {
           style.fontFamily = v;
           await this.plugin.saveSettings();
           refreshPreview();
         })();
+      });
+    });
+    fontSetting.addButton(
+      (btn) => btn.setButtonText("Choose\u2026").onClick(() => {
+        void openFontPicker(this.app, (font) => {
+          style.fontFamily = font;
+          fontText == null ? void 0 : fontText.setValue(font);
+          void this.plugin.saveSettings().then(() => refreshPreview());
+        });
       })
     );
-    new import_obsidian4.Setting(editors).setName("Size (pt)").addText(
+    new import_obsidian5.Setting(editors).setName("Size (pt)").addText(
       (t) => t.setValue(String(style.fontSize)).onChange((v) => {
         void (async () => {
           const n = parseFloat(v);
@@ -1738,7 +1854,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
         })();
       })
     );
-    new import_obsidian4.Setting(editors).setName("Weight").addDropdown((dd) => {
+    new import_obsidian5.Setting(editors).setName("Weight").addDropdown((dd) => {
       ["normal", "bold", "300", "500", "600", "700"].forEach(
         (w) => {
           dd.addOption(w, w);
@@ -1752,7 +1868,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
         })();
       });
     });
-    new import_obsidian4.Setting(editors).setName("Align").addDropdown((dd) => {
+    new import_obsidian5.Setting(editors).setName("Align").addDropdown((dd) => {
       ["left", "center", "right", "justify"].forEach((a) => {
         dd.addOption(a, a);
       });
@@ -1781,7 +1897,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
         }
       );
     }
-    new import_obsidian4.Setting(editors).setName("Margin top (pt)").addText(
+    new import_obsidian5.Setting(editors).setName("Margin top (pt)").addText(
       (t) => t.setValue(String(style.marginTop)).onChange((v) => {
         void (async () => {
           const n = parseFloat(v);
@@ -1793,7 +1909,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
         })();
       })
     );
-    new import_obsidian4.Setting(editors).setName("Margin bottom (pt)").addText(
+    new import_obsidian5.Setting(editors).setName("Margin bottom (pt)").addText(
       (t) => t.setValue(String(style.marginBottom)).onChange((v) => {
         void (async () => {
           const n = parseFloat(v);
@@ -1806,7 +1922,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
       })
     );
     if (style.lineHeight != null) {
-      new import_obsidian4.Setting(editors).setName("Line height (%)").addText(
+      new import_obsidian5.Setting(editors).setName("Line height (%)").addText(
         (t) => t.setValue(String(style.lineHeight)).onChange((v) => {
           void (async () => {
             const n = parseFloat(v);
@@ -1822,7 +1938,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
   }
   addColorSetting(parent, name, value, onChange) {
     var _a;
-    const setting = new import_obsidian4.Setting(parent).setName(name);
+    const setting = new import_obsidian5.Setting(parent).setName(name);
     let textComp = null;
     const initial = (_a = normalizeHex(value)) != null ? _a : "#1a1a1a";
     setting.addText((t) => {
@@ -1927,7 +2043,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian4.PluginSettingTab {
     return parent.createDiv({ cls: "beautiful-pdf-row-box" });
   }
   numSetting(containerEl, name, value, onChange) {
-    new import_obsidian4.Setting(containerEl).setName(name).addText(
+    new import_obsidian5.Setting(containerEl).setName(name).addText(
       (t) => t.setValue(String(value)).onChange((v) => {
         void (async () => {
           const n = parseFloat(v);
@@ -1954,7 +2070,7 @@ function normalizeHex(value) {
 }
 
 // src/main.ts
-var BeautifulPdfPlugin = class extends import_obsidian5.Plugin {
+var BeautifulPdfPlugin = class extends import_obsidian6.Plugin {
   async onload() {
     await this.loadSettings();
     this.addSettingTab(new BeautifulPdfSettingTab(this.app, this));
@@ -2016,7 +2132,7 @@ ${PAGE_BREAK_SNIPPET}` : PAGE_BREAK_SNIPPET;
     });
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
-        if (!(file instanceof import_obsidian5.TFile) || file.extension !== "md")
+        if (!(file instanceof import_obsidian6.TFile) || file.extension !== "md")
           return;
         menu.addItem((item) => {
           item.setTitle("Beautiful PDF: Export").setIcon("file-text").onClick(() => {
@@ -2035,14 +2151,14 @@ ${PAGE_BREAK_SNIPPET}` : PAGE_BREAK_SNIPPET;
   async openPreview(file) {
     const target = file != null ? file : this.getActiveMarkdownFile();
     if (!target) {
-      new import_obsidian5.Notice("Open a Markdown note first.");
+      new import_obsidian6.Notice("Open a Markdown note first.");
       return;
     }
     new PreviewModal(this.app, this, target).open();
   }
   getActiveMarkdownFile() {
     var _a;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
     return (_a = view == null ? void 0 : view.file) != null ? _a : null;
   }
   async loadSettings() {
