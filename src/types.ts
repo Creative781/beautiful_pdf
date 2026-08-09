@@ -85,11 +85,36 @@ export interface PageSettings {
 	printBackground: boolean;
 }
 
+/** PDF-only extras that are not plain Markdown element styles. */
+export interface SpecialOptions {
+	/** Auto-number headings in the exported PDF (1 / 1.1 / 1.1.1). */
+	numberHeadings: boolean;
+	/** First heading level included in numbering (1 = H1 … 6 = H6). */
+	numberMinLevel: number;
+	/** Last heading level included in numbering. */
+	numberMaxLevel: number;
+	/** Do not number the filename title (`h1.__title__`). */
+	skipFilenameTitle: boolean;
+}
+
 export interface Profile {
 	id: string;
 	name: string;
 	page: PageSettings;
 	elements: ElementStyles;
+	special: SpecialOptions;
+}
+
+export function createDefaultSpecialOptions(
+	overrides: Partial<SpecialOptions> = {},
+): SpecialOptions {
+	return {
+		numberHeadings: false,
+		numberMinLevel: 1,
+		numberMaxLevel: 6,
+		skipFilenameTitle: true,
+		...overrides,
+	};
 }
 
 export interface BeautifulPdfSettings {

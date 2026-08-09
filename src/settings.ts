@@ -27,6 +27,7 @@ import { lineHeightCss, toLineHeightPercent } from "./util";
 
 type UiState = {
 	pageOpen: boolean;
+	specialOpen: boolean;
 	marginsOpen: boolean;
 	pageNumberOpen: boolean;
 	headerFooterOpen: boolean;
@@ -39,6 +40,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 	plugin: BeautifulPdfPlugin;
 	private ui: UiState = {
 		pageOpen: false,
+		specialOpen: false,
 		marginsOpen: false,
 		pageNumberOpen: false,
 		headerFooterOpen: false,
@@ -64,6 +66,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 	private renderAll(containerEl: HTMLElement): void {
 		this.renderProfiles(containerEl);
 		this.renderPageSection(containerEl);
+		this.renderSpecialSection(containerEl);
 		this.renderElementsSection(containerEl);
 
 		const tip = containerEl.createDiv({ cls: "beautiful-pdf-tip" });
@@ -399,6 +402,93 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		dd.addOption("left", "Left");
 		dd.addOption("center", "Center");
 		dd.addOption("right", "Right");
+	}
+
+	/* ---------- Special options (PDF-only) ---------- */
+
+	private renderSpecialSection(containerEl: HTMLElement): void {
+		const profile = getActiveProfile(this.plugin.settings);
+		const special = profile.special;
+		const summary = special.numberHeadings
+			? `Numbered H${special.numberMinLevel}–H${special.numberMaxLevel}`
+			: "Off";
+
+		this.collapsible(
+			containerEl,
+			"Special options",
+			summary,
+			this.ui.specialOpen,
+			(open) => {
+				this.ui.specialOpen = open;
+			},
+			(body) => {
+				const tip = body.createDiv({ cls: "beautiful-pdf-tip" });
+				tip.appendText(
+					"PDF-only extras. Numbered headings keep normal # / ## markup in the note; numbers are added only in the export.",
+				);
+
+				const enableBox = this.rowBox(body);
+				new Setting(enableBox)
+					.setName("Number headings")
+					.setDesc("Prefix headings with 1 / 1.1 / 1.1.1 in the PDF")
+					.addToggle((tg) =>
+						tg.setValue(special.numberHeadings).onChange((v) => {
+							void (async () => {
+								special.numberHeadings = v;
+								await this.plugin.saveSettings();
+								this.display();
+							})();
+						}),
+					);
+
+				if (!special.numberHeadings) return;
+
+				const rangeBox = this.rowBox(body);
+				new Setting(rangeBox)
+					.setName("From level")
+					.addDropdown((dd) => {
+						for (let i = 1; i <= 6; i++) dd.addOption(String(i), `H${i}`);
+						dd.setValue(String(special.numberMinLevel)).onChange((v) => {
+							void (async () => {
+								special.numberMinLevel = Number(v);
+								if (special.numberMinLevel > special.numberMaxLevel) {
+									special.numberMaxLevel = special.numberMinLevel;
+								}
+								await this.plugin.saveSettings();
+								this.display();
+							})();
+						});
+					});
+				new Setting(rangeBox)
+					.setName("To level")
+					.addDropdown((dd) => {
+						for (let i = 1; i <= 6; i++) dd.addOption(String(i), `H${i}`);
+						dd.setValue(String(special.numberMaxLevel)).onChange((v) => {
+							void (async () => {
+								special.numberMaxLevel = Number(v);
+								if (special.numberMaxLevel < special.numberMinLevel) {
+									special.numberMinLevel = special.numberMaxLevel;
+								}
+								await this.plugin.saveSettings();
+								this.display();
+							})();
+						});
+					});
+
+				const skipBox = this.rowBox(body);
+				new Setting(skipBox)
+					.setName("Skip filename title")
+					.setDesc("Do not number the title injected from the file name")
+					.addToggle((tg) =>
+						tg.setValue(special.skipFilenameTitle).onChange((v) => {
+							void (async () => {
+								special.skipFilenameTitle = v;
+								await this.plugin.saveSettings();
+							})();
+						}),
+					);
+			},
+		);
 	}
 
 	/* ---------- Markdown elements ---------- */

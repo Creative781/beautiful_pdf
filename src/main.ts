@@ -4,7 +4,7 @@ import { PreviewModal, ProfileSuggestModal } from "./preview";
 import { createDefaultSettings, createSampleProfiles, getActiveProfile } from "./profiles";
 import { BeautifulPdfSettingTab } from "./settings";
 import type { BeautifulPdfSettings, ElementStyles, Profile } from "./types";
-import { ELEMENT_KEYS, SETTINGS_VERSION } from "./types";
+import { createDefaultSpecialOptions, ELEMENT_KEYS, SETTINGS_VERSION } from "./types";
 import { PAGE_BREAK_SNIPPET, toLineHeightPercent } from "./util";
 
 export default class BeautifulPdfPlugin extends Plugin {
@@ -161,10 +161,22 @@ function mergeProfile(raw: Profile, fallback: ElementStyles): Profile {
 	const defaultPage = createDefaultSettings().profiles[0].page;
 	const page = { ...defaultPage, ...raw.page };
 	page.lineHeight = toLineHeightPercent(page.lineHeight, defaultPage.lineHeight);
+	const special = createDefaultSpecialOptions(raw.special);
+	special.numberMinLevel = clampLevel(special.numberMinLevel, 1);
+	special.numberMaxLevel = clampLevel(special.numberMaxLevel, 6);
+	if (special.numberMinLevel > special.numberMaxLevel) {
+		special.numberMaxLevel = special.numberMinLevel;
+	}
 	return {
 		id: raw.id,
 		name: raw.name,
 		page,
 		elements,
+		special,
 	};
+}
+
+function clampLevel(n: number, fallback: number): number {
+	if (!Number.isFinite(n)) return fallback;
+	return Math.min(6, Math.max(1, Math.round(n)));
 }

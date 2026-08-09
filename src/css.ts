@@ -1,4 +1,4 @@
-import type { ElementStyle, Profile } from "./types";
+import type { ElementStyle, Profile, SpecialOptions } from "./types";
 import { frameStyleExtras } from "./frame";
 import { lineHeightCss } from "./util";
 
@@ -68,6 +68,7 @@ p { ${inline(e.body)} }
 	parts.push(rule("h4", e.h4));
 	parts.push(rule("h5", e.h5));
 	parts.push(rule("h6", e.h6));
+	parts.push(numberedHeadingCss(profile.special));
 
 	parts.push(rule("blockquote", e.blockquote, frameStyleExtras("blockquote", e.blockquote)));
 
@@ -264,6 +265,57 @@ function inline(style: ElementStyle): string {
 	];
 	if (style.lineHeight != null) decls.push(`line-height: ${lineHeightCss(style.lineHeight)}`);
 	return decls.join("; ") + ";";
+}
+
+/**
+ * Hierarchical heading numbers for PDF only (CSS counters).
+ * Levels outside [min, max] are left unnumbered; deeper counters still reset.
+ */
+function numberedHeadingCss(special: SpecialOptions | undefined): string {
+	if (!special?.numberHeadings) return "";
+
+	const min = Math.min(6, Math.max(1, special.numberMinLevel || 1));
+	const max = Math.min(6, Math.max(min, special.numberMaxLevel || 6));
+	const skipTitle = special.skipFilenameTitle !== false;
+
+	const lines: string[] = [
+		`.markdown-preview-view, .markdown-rendered {`,
+		`  counter-reset: bpf-h1 bpf-h2 bpf-h3 bpf-h4 bpf-h5 bpf-h6;`,
+		`}`,
+	];
+
+	for (let level = 1; level <= 6; level++) {
+		const sel =
+			level === 1 && skipTitle
+				? `h1:not(.__title__)`
+				: `h${level}`;
+		const deeper = Array.from({ length: 6 - level }, (_, i) => `bpf-h${level + i + 1}`).join(
+			" ",
+		);
+		lines.push(`${sel} {`);
+		if (level >= min && level <= max) {
+			lines.push(`  counter-increment: bpf-h${level};`);
+		}
+		if (deeper) {
+			lines.push(`  counter-reset: ${deeper};`);
+		}
+		lines.push(`}`);
+
+		if (level >= min && level <= max) {
+			const parts: string[] = [];
+			for (let i = min; i <= level; i++) {
+				parts.push(`counter(bpf-h${i})`);
+			}
+			const content = parts.map((p, idx) => (idx === 0 ? p : `"." ${p}`)).join(" ");
+			lines.push(`${sel}::before {`);
+			lines.push(`  content: ${content} ".\\00a0";`);
+			lines.push(`  font: inherit;`);
+			lines.push(`  color: inherit;`);
+			lines.push(`}`);
+		}
+	}
+
+	return lines.join("\n");
 }
 
 export function headerFooterTemplates(profile: Profile): {

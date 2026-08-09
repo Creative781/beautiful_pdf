@@ -187,6 +187,7 @@ p { ${inline(e.body)} }
   parts.push(rule("h4", e.h4));
   parts.push(rule("h5", e.h5));
   parts.push(rule("h6", e.h6));
+  parts.push(numberedHeadingCss(profile.special));
   parts.push(rule("blockquote", e.blockquote, frameStyleExtras("blockquote", e.blockquote)));
   parts.push(rule("ul, ol", e.list, ["padding-left: 1.4em"]));
   parts.push(rule("li", e.list, [
@@ -370,6 +371,45 @@ function inline(style) {
   if (style.lineHeight != null)
     decls.push(`line-height: ${lineHeightCss(style.lineHeight)}`);
   return decls.join("; ") + ";";
+}
+function numberedHeadingCss(special) {
+  if (!(special == null ? void 0 : special.numberHeadings))
+    return "";
+  const min = Math.min(6, Math.max(1, special.numberMinLevel || 1));
+  const max = Math.min(6, Math.max(min, special.numberMaxLevel || 6));
+  const skipTitle = special.skipFilenameTitle !== false;
+  const lines = [
+    `.markdown-preview-view, .markdown-rendered {`,
+    `  counter-reset: bpf-h1 bpf-h2 bpf-h3 bpf-h4 bpf-h5 bpf-h6;`,
+    `}`
+  ];
+  for (let level = 1; level <= 6; level++) {
+    const sel = level === 1 && skipTitle ? `h1:not(.__title__)` : `h${level}`;
+    const deeper = Array.from({ length: 6 - level }, (_, i) => `bpf-h${level + i + 1}`).join(
+      " "
+    );
+    lines.push(`${sel} {`);
+    if (level >= min && level <= max) {
+      lines.push(`  counter-increment: bpf-h${level};`);
+    }
+    if (deeper) {
+      lines.push(`  counter-reset: ${deeper};`);
+    }
+    lines.push(`}`);
+    if (level >= min && level <= max) {
+      const parts = [];
+      for (let i = min; i <= level; i++) {
+        parts.push(`counter(bpf-h${i})`);
+      }
+      const content = parts.map((p, idx) => idx === 0 ? p : `"." ${p}`).join(" ");
+      lines.push(`${sel}::before {`);
+      lines.push(`  content: ${content} ".\\00a0";`);
+      lines.push(`  font: inherit;`);
+      lines.push(`  color: inherit;`);
+      lines.push(`}`);
+    }
+  }
+  return lines.join("\n");
 }
 function headerFooterTemplates(profile) {
   var _a, _b, _c, _d;
@@ -776,6 +816,92 @@ function sleep2(ms) {
 // src/preview.ts
 var import_obsidian3 = require("obsidian");
 
+// src/types.ts
+var FRAME_PRESET_OPTIONS = [
+  { id: "accent-bar", label: "Accent bar (left edge)" },
+  { id: "outline-card", label: "Outline card" },
+  { id: "soft-fill", label: "Soft fill (no border)" }
+];
+var ELEMENTS_WITH_FRAME = [
+  "blockquote",
+  "callout",
+  "embed"
+];
+function createDefaultSpecialOptions(overrides = {}) {
+  return {
+    numberHeadings: false,
+    numberMinLevel: 1,
+    numberMaxLevel: 6,
+    skipFilenameTitle: true,
+    ...overrides
+  };
+}
+var ELEMENT_LABELS = {
+  h1: "Heading # (H1)",
+  h2: "Heading ## (H2)",
+  h3: "Heading ### (H3)",
+  h4: "Heading #### (H4)",
+  h5: "Heading ##### (H5)",
+  h6: "Heading ###### (H6)",
+  body: "Body",
+  blockquote: "Blockquote",
+  list: "List",
+  taskList: "Task list",
+  codeInline: "Inline code",
+  codeBlock: "Code block",
+  hr: "Horizontal rule",
+  table: "Table body",
+  tableHeader: "Table header",
+  callout: "Callout",
+  calloutTitle: "Callout title",
+  image: "Image",
+  link: "Link",
+  footnote: "Footnote",
+  embed: "Embed"
+};
+var ELEMENT_KEYS = Object.keys(ELEMENT_LABELS);
+var ELEMENT_GROUPS = [
+  { id: "headings", label: "Headings", keys: ["h1", "h2", "h3", "h4", "h5", "h6"] },
+  { id: "body", label: "Body \xB7 quote", keys: ["body", "blockquote"] },
+  { id: "lists", label: "Lists", keys: ["list", "taskList"] },
+  { id: "code", label: "Code", keys: ["codeInline", "codeBlock"] },
+  { id: "table", label: "Tables", keys: ["table", "tableHeader"] },
+  { id: "callout", label: "Callouts", keys: ["callout", "calloutTitle"] },
+  { id: "misc", label: "Other", keys: ["hr", "image", "link", "footnote", "embed"] }
+];
+var ELEMENT_PREVIEW_TEXT = {
+  h1: "Heading sample (#)",
+  h2: "Heading sample (##)",
+  h3: "Heading sample (###)",
+  h4: "Heading sample (####)",
+  h5: "Heading sample (#####)",
+  h6: "Heading sample (######)",
+  body: "Body text looks like this. Check line height and font size.",
+  blockquote: "A blockquote sample. Check the left border and colors.",
+  list: "\u2022 List item sample",
+  taskList: "\u2611 Task list item sample",
+  codeInline: "const x = 1",
+  codeBlock: "function hello() {\n  return true;\n}",
+  hr: "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+  table: "Table cell sample",
+  tableHeader: "Table header sample",
+  callout: "Callout body sample.",
+  calloutTitle: "Callout title",
+  image: "[ Image align \xB7 spacing ]",
+  link: "Link text sample",
+  footnote: "Footnote sample\xB9",
+  embed: "Embed preview area"
+};
+var ELEMENTS_WITH_BACKGROUND = [
+  "blockquote",
+  "codeInline",
+  "codeBlock",
+  "tableHeader",
+  "callout",
+  "embed"
+];
+var SETTINGS_VERSION = 3;
+
 // src/profiles.ts
 var KOR = '"KoPubWorldDotum", "KoPub Dotum", "Apple SD Gothic Neo", "NanumGothic", "Malgun Gothic", sans-serif';
 var KOR_SERIF = '"KoPubWorldBatang", "Apple Myungjo", "NanumMyeongjo", "Batang", serif';
@@ -1008,7 +1134,8 @@ function createReportProfile() {
       headerText: "",
       footerText: ""
     }),
-    elements
+    elements,
+    special: createDefaultSpecialOptions()
   };
 }
 function createLifeProfile() {
@@ -1060,7 +1187,8 @@ function createLifeProfile() {
       headerText: "",
       footerAlign: "right"
     }),
-    elements
+    elements,
+    special: createDefaultSpecialOptions()
   };
 }
 function createPlanProfile() {
@@ -1120,7 +1248,8 @@ function createPlanProfile() {
       headerAlign: "right",
       footerText: ""
     }),
-    elements
+    elements,
+    special: createDefaultSpecialOptions({ numberHeadings: true, numberMinLevel: 2 })
   };
 }
 function createSampleProfiles() {
@@ -1143,7 +1272,8 @@ function cloneProfile(profile, newName) {
     id: `profile-${Date.now()}`,
     name: newName,
     page: { ...profile.page },
-    elements: cloneElements(profile.elements)
+    elements: cloneElements(profile.elements),
+    special: { ...profile.special }
   };
 }
 function createBlankProfile(name) {
@@ -1152,7 +1282,8 @@ function createBlankProfile(name) {
     id: `profile-${Date.now()}`,
     name,
     page: { ...base.page },
-    elements: cloneElements(base.elements)
+    elements: cloneElements(base.elements),
+    special: { ...base.special }
   };
 }
 
@@ -1527,89 +1658,13 @@ async function openFontPicker(app, onPick) {
   new FontSuggestModal(app, fonts, onPick).open();
 }
 
-// src/types.ts
-var FRAME_PRESET_OPTIONS = [
-  { id: "accent-bar", label: "Accent bar (left edge)" },
-  { id: "outline-card", label: "Outline card" },
-  { id: "soft-fill", label: "Soft fill (no border)" }
-];
-var ELEMENTS_WITH_FRAME = [
-  "blockquote",
-  "callout",
-  "embed"
-];
-var ELEMENT_LABELS = {
-  h1: "Heading # (H1)",
-  h2: "Heading ## (H2)",
-  h3: "Heading ### (H3)",
-  h4: "Heading #### (H4)",
-  h5: "Heading ##### (H5)",
-  h6: "Heading ###### (H6)",
-  body: "Body",
-  blockquote: "Blockquote",
-  list: "List",
-  taskList: "Task list",
-  codeInline: "Inline code",
-  codeBlock: "Code block",
-  hr: "Horizontal rule",
-  table: "Table body",
-  tableHeader: "Table header",
-  callout: "Callout",
-  calloutTitle: "Callout title",
-  image: "Image",
-  link: "Link",
-  footnote: "Footnote",
-  embed: "Embed"
-};
-var ELEMENT_KEYS = Object.keys(ELEMENT_LABELS);
-var ELEMENT_GROUPS = [
-  { id: "headings", label: "Headings", keys: ["h1", "h2", "h3", "h4", "h5", "h6"] },
-  { id: "body", label: "Body \xB7 quote", keys: ["body", "blockquote"] },
-  { id: "lists", label: "Lists", keys: ["list", "taskList"] },
-  { id: "code", label: "Code", keys: ["codeInline", "codeBlock"] },
-  { id: "table", label: "Tables", keys: ["table", "tableHeader"] },
-  { id: "callout", label: "Callouts", keys: ["callout", "calloutTitle"] },
-  { id: "misc", label: "Other", keys: ["hr", "image", "link", "footnote", "embed"] }
-];
-var ELEMENT_PREVIEW_TEXT = {
-  h1: "Heading sample (#)",
-  h2: "Heading sample (##)",
-  h3: "Heading sample (###)",
-  h4: "Heading sample (####)",
-  h5: "Heading sample (#####)",
-  h6: "Heading sample (######)",
-  body: "Body text looks like this. Check line height and font size.",
-  blockquote: "A blockquote sample. Check the left border and colors.",
-  list: "\u2022 List item sample",
-  taskList: "\u2611 Task list item sample",
-  codeInline: "const x = 1",
-  codeBlock: "function hello() {\n  return true;\n}",
-  hr: "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
-  table: "Table cell sample",
-  tableHeader: "Table header sample",
-  callout: "Callout body sample.",
-  calloutTitle: "Callout title",
-  image: "[ Image align \xB7 spacing ]",
-  link: "Link text sample",
-  footnote: "Footnote sample\xB9",
-  embed: "Embed preview area"
-};
-var ELEMENTS_WITH_BACKGROUND = [
-  "blockquote",
-  "codeInline",
-  "codeBlock",
-  "tableHeader",
-  "callout",
-  "embed"
-];
-var SETTINGS_VERSION = 3;
-
 // src/settings.ts
 var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.ui = {
       pageOpen: false,
+      specialOpen: false,
       marginsOpen: false,
       pageNumberOpen: false,
       headerFooterOpen: false,
@@ -1629,6 +1684,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
   renderAll(containerEl) {
     this.renderProfiles(containerEl);
     this.renderPageSection(containerEl);
+    this.renderSpecialSection(containerEl);
     this.renderElementsSection(containerEl);
     const tip = containerEl.createDiv({ cls: "beautiful-pdf-tip" });
     tip.createEl("strong", { text: "Page break: " });
@@ -1914,6 +1970,77 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
     dd.addOption("left", "Left");
     dd.addOption("center", "Center");
     dd.addOption("right", "Right");
+  }
+  /* ---------- Special options (PDF-only) ---------- */
+  renderSpecialSection(containerEl) {
+    const profile = getActiveProfile(this.plugin.settings);
+    const special = profile.special;
+    const summary = special.numberHeadings ? `Numbered H${special.numberMinLevel}\u2013H${special.numberMaxLevel}` : "Off";
+    this.collapsible(
+      containerEl,
+      "Special options",
+      summary,
+      this.ui.specialOpen,
+      (open) => {
+        this.ui.specialOpen = open;
+      },
+      (body) => {
+        const tip = body.createDiv({ cls: "beautiful-pdf-tip" });
+        tip.appendText(
+          "PDF-only extras. Numbered headings keep normal # / ## markup in the note; numbers are added only in the export."
+        );
+        const enableBox = this.rowBox(body);
+        new import_obsidian5.Setting(enableBox).setName("Number headings").setDesc("Prefix headings with 1 / 1.1 / 1.1.1 in the PDF").addToggle(
+          (tg) => tg.setValue(special.numberHeadings).onChange((v) => {
+            void (async () => {
+              special.numberHeadings = v;
+              await this.plugin.saveSettings();
+              this.display();
+            })();
+          })
+        );
+        if (!special.numberHeadings)
+          return;
+        const rangeBox = this.rowBox(body);
+        new import_obsidian5.Setting(rangeBox).setName("From level").addDropdown((dd) => {
+          for (let i = 1; i <= 6; i++)
+            dd.addOption(String(i), `H${i}`);
+          dd.setValue(String(special.numberMinLevel)).onChange((v) => {
+            void (async () => {
+              special.numberMinLevel = Number(v);
+              if (special.numberMinLevel > special.numberMaxLevel) {
+                special.numberMaxLevel = special.numberMinLevel;
+              }
+              await this.plugin.saveSettings();
+              this.display();
+            })();
+          });
+        });
+        new import_obsidian5.Setting(rangeBox).setName("To level").addDropdown((dd) => {
+          for (let i = 1; i <= 6; i++)
+            dd.addOption(String(i), `H${i}`);
+          dd.setValue(String(special.numberMaxLevel)).onChange((v) => {
+            void (async () => {
+              special.numberMaxLevel = Number(v);
+              if (special.numberMaxLevel < special.numberMinLevel) {
+                special.numberMinLevel = special.numberMaxLevel;
+              }
+              await this.plugin.saveSettings();
+              this.display();
+            })();
+          });
+        });
+        const skipBox = this.rowBox(body);
+        new import_obsidian5.Setting(skipBox).setName("Skip filename title").setDesc("Do not number the title injected from the file name").addToggle(
+          (tg) => tg.setValue(special.skipFilenameTitle).onChange((v) => {
+            void (async () => {
+              special.skipFilenameTitle = v;
+              await this.plugin.saveSettings();
+            })();
+          })
+        );
+      }
+    );
   }
   /* ---------- Markdown elements ---------- */
   renderElementsSection(containerEl) {
@@ -2368,10 +2495,22 @@ function mergeProfile(raw, fallback) {
   const defaultPage = createDefaultSettings().profiles[0].page;
   const page = { ...defaultPage, ...raw.page };
   page.lineHeight = toLineHeightPercent(page.lineHeight, defaultPage.lineHeight);
+  const special = createDefaultSpecialOptions(raw.special);
+  special.numberMinLevel = clampLevel(special.numberMinLevel, 1);
+  special.numberMaxLevel = clampLevel(special.numberMaxLevel, 6);
+  if (special.numberMinLevel > special.numberMaxLevel) {
+    special.numberMaxLevel = special.numberMinLevel;
+  }
   return {
     id: raw.id,
     name: raw.name,
     page,
-    elements
+    elements,
+    special
   };
+}
+function clampLevel(n, fallback) {
+  if (!Number.isFinite(n))
+    return fallback;
+  return Math.min(6, Math.max(1, Math.round(n)));
 }

@@ -1,9 +1,10 @@
-import type {
-	BeautifulPdfSettings,
-	ElementStyle,
-	ElementStyles,
-	PageSettings,
-	Profile,
+import {
+	createDefaultSpecialOptions,
+	type BeautifulPdfSettings,
+	type ElementStyle,
+	type ElementStyles,
+	type PageSettings,
+	type Profile,
 } from "./types";
 
 const KOR =
@@ -248,6 +249,7 @@ export function createReportProfile(): Profile {
 			footerText: "",
 		}),
 		elements,
+		special: createDefaultSpecialOptions(),
 	};
 }
 
@@ -302,6 +304,7 @@ export function createLifeProfile(): Profile {
 			footerAlign: "right",
 		}),
 		elements,
+		special: createDefaultSpecialOptions(),
 	};
 }
 
@@ -364,6 +367,7 @@ export function createPlanProfile(): Profile {
 			footerText: "",
 		}),
 		elements,
+		special: createDefaultSpecialOptions({ numberHeadings: true, numberMinLevel: 2 }),
 	};
 }
 
@@ -393,6 +397,7 @@ export function cloneProfile(profile: Profile, newName: string): Profile {
 		name: newName,
 		page: { ...profile.page },
 		elements: cloneElements(profile.elements),
+		special: { ...profile.special },
 	};
 }
 
@@ -403,5 +408,6 @@ export function createBlankProfile(name: string): Profile {
 		name,
 		page: { ...base.page },
 		elements: cloneElements(base.elements),
+		special: { ...base.special },
 	};
 }
