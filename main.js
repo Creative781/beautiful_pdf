@@ -2016,9 +2016,9 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
             });
           });
         };
-        addLevel("Top-level 1. 2. 3.", "orderedListHeadingLevel1");
-        addLevel("Nested level 2", "orderedListHeadingLevel2");
-        addLevel("Nested level 3", "orderedListHeadingLevel3");
+        addLevel("Top level", "orderedListHeadingLevel1");
+        addLevel("Nested level", "orderedListHeadingLevel2");
+        addLevel("Deeper nested level", "orderedListHeadingLevel3");
       }
     );
   }
