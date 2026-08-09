@@ -86,6 +86,8 @@ export class FontSuggestModal extends FuzzySuggestModal<string> {
 		super(app);
 		this.fonts = fonts;
 		this.onPick = onPick;
+		// SuggestModal defaults to ~100 rows; systems often have far more families.
+		this.limit = Math.max(fonts.length, 1000);
 		this.setPlaceholder("Search installed fonts…");
 		this.setInstructions([
 			{ command: "↑↓", purpose: "navigate" },

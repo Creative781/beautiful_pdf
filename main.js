@@ -1337,6 +1337,7 @@ var FontSuggestModal = class extends import_obsidian4.FuzzySuggestModal {
     super(app);
     this.fonts = fonts;
     this.onPick = onPick;
+    this.limit = Math.max(fonts.length, 1e3);
     this.setPlaceholder("Search installed fonts\u2026");
     this.setInstructions([
       { command: "\u2191\u2193", purpose: "navigate" },
