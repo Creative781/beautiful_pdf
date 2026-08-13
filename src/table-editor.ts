@@ -12,7 +12,6 @@ import {
 	resetTableSizing,
 	setTablePixelHeight,
 	setTablePixelWidth,
-	stripEditorChrome,
 	tableColumnCount,
 	type NoteTableLayouts,
 } from "./table-layout";
@@ -728,9 +727,11 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 
 	private async applyAndClose(): Promise<void> {
 		const root = this.root();
-		if (!root) return;
-		// Snapshot from a clean DOM (no handles/wrappers), then restore is unnecessary — we close.
-		stripEditorChrome(root);
+		if (!root) {
+			new Notice("Beautiful PDF: table editor DOM not ready");
+			return;
+		}
+		// captureNoteTableLayouts measures first, then strips editor chrome
 		const layouts = captureNoteTableLayouts(root);
 		if (!this.plugin.settings.tableLayouts) {
 			this.plugin.settings.tableLayouts = {};
@@ -738,17 +739,17 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		if (layouts.tables.length === 0) {
 			delete this.plugin.settings.tableLayouts[this.file.path];
 		} else {
-			// Deep clone so preview gets a stable object even if settings mutate later
 			this.plugin.settings.tableLayouts[this.file.path] = JSON.parse(
 				JSON.stringify(layouts),
 			) as NoteTableLayouts;
 		}
 		await this.plugin.saveSettings();
 		const saved =
-			this.plugin.settings.tableLayouts[this.file.path] ??
+			this.plugin.settings.tableLayouts?.[this.file.path] ??
 			({ tables: [] } as NoteTableLayouts);
+		const callback = this.onApplied;
 		this.close();
-		this.onApplied(saved);
+		callback(saved);
 		new Notice(
 			saved.tables.length
 				? `Saved layout for ${saved.tables.length} table(s)`

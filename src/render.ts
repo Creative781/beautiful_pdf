@@ -2,6 +2,7 @@ import { App, Component, MarkdownRenderer, TFile, requestUrl } from "obsidian";
 import { profileToCss } from "./css";
 import {
 	applyNoteTableLayouts,
+	tableLayoutsToCss,
 	type NoteTableLayouts,
 } from "./table-layout";
 import type { Profile } from "./types";
@@ -61,6 +62,7 @@ export async function renderNoteHtml(
 		applyNoteTableLayouts(viewEl, options.tableLayouts);
 
 		const css = profileToCss(profile);
+		const layoutCss = tableLayoutsToCss(options.tableLayouts);
 		const bodyHtml = viewEl.innerHTML;
 		const htmlDocument = `<!DOCTYPE html>
 <html>
@@ -68,6 +70,7 @@ export async function renderNoteHtml(
 <meta charset="utf-8" />
 <title>${escapeAttr(title)}</title>
 <style>${css}</style>
+${layoutCss ? `<style id="bpf-table-layouts">${layoutCss}</style>` : ""}
 </head>
 <body>
 <div class="markdown-preview-view markdown-rendered">

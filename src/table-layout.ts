@@ -80,8 +80,6 @@ export function lockTablePixelWidth(table: HTMLTableElement): void {
 	if (existing && existing !== "100%" && existing !== "auto") return;
 	const w = Math.round(table.getBoundingClientRect().width);
 	table.style.width = `${Math.max(40, w)}px`;
-	// Do not set max-width:100% here — inside a fit-content wrap it
-	// circularly clamps and blocks growing the table via the right edge.
 	table.style.maxWidth = "none";
 }
 
@@ -111,13 +109,6 @@ export function measureTableWidthPct(table: HTMLTableElement): number | undefine
 	if (pw <= 1) return undefined;
 	const tw = table.getBoundingClientRect().width;
 	return Math.min(100, Math.max(5, (tw / pw) * 100));
-}
-
-export function applyTableWidthPct(table: HTMLTableElement, widthPct: number): void {
-	const pct = Math.min(100, Math.max(5, widthPct));
-	markTableTouched(table);
-	table.style.width = `${pct}%`;
-	table.style.maxWidth = "100%";
 }
 
 /** Read current column widths as percentages of the table's client width. */
@@ -203,7 +194,6 @@ export function applyRowHeightsPx(
 
 /**
  * Remove editor-only chrome so capture/PDF never see handles or wrappers.
- * Safe to call on the adjust-iframe DOM before snapshotting layouts.
  */
 export function stripEditorChrome(root: HTMLElement): void {
 	root
@@ -224,6 +214,53 @@ export function stripEditorChrome(root: HTMLElement): void {
 	});
 }
 
+/**
+ * Print-time CSS that forces saved layouts. Inline col/tr styles can be lost or
+ * ignored by print engines; this is the authoritative path for PDF output.
+ */
+export function tableLayoutsToCss(
+	layouts: NoteTableLayouts | null | undefined,
+): string {
+	if (!layouts?.tables?.length) return "";
+	const lines: string[] = [];
+	for (const layout of layouts.tables) {
+		const t = `table[data-bpf-i="${layout.index}"]`;
+		const widthRule =
+			layout.widthPct != null && layout.widthPct > 0
+				? `width:${Number(layout.widthPct.toFixed(4))}% !important;`
+				: "";
+		const heightRule =
+			layout.heightPx != null && layout.heightPx > 0
+				? `height:${Math.round(layout.heightPx)}px !important;`
+				: "";
+		lines.push(
+			`${t}{table-layout:fixed !important;max-width:100% !important;${widthRule}${heightRule}}`,
+		);
+		const pct = normalizePercents(layout.colWidthsPct || []);
+		pct.forEach((p, i) => {
+			const w = `${Number(p.toFixed(4))}%`;
+			lines.push(
+				`${t} > colgroup > col:nth-child(${i + 1}){width:${w} !important;}`,
+			);
+			// Cell fallbacks when colgroup is dropped by the serializer/engine
+			lines.push(
+				`${t} > thead > tr > *:nth-child(${i + 1}),` +
+					`${t} > tbody > tr:first-child > *:nth-child(${i + 1}),` +
+					`${t} > tr:first-child > *:nth-child(${i + 1}){width:${w} !important;}`,
+			);
+		});
+		if (layout.rowHeightsPx?.length) {
+			layout.rowHeightsPx.forEach((h, i) => {
+				if (h == null || h <= 0) return;
+				lines.push(
+					`${t} tr[data-bpf-r="${i}"]{height:${Math.round(h)}px !important;}`,
+				);
+			});
+		}
+	}
+	return lines.join("\n");
+}
+
 /** Apply saved layouts onto rendered note HTML (by table index). */
 export function applyNoteTableLayouts(
 	root: HTMLElement,
@@ -235,6 +272,7 @@ export function applyNoteTableLayouts(
 		const table = tables[layout.index] as HTMLTableElement | undefined;
 		if (!table) continue;
 		table.classList.add("bpf-table-sized");
+		table.setAttribute("data-bpf-i", String(layout.index));
 
 		if (layout.colWidthsPct?.length) {
 			const n = Math.max(tableColumnCount(table), layout.colWidthsPct.length);
@@ -246,15 +284,27 @@ export function applyNoteTableLayouts(
 			const cols = ensureColgroup(table, n);
 			for (let i = 0; i < n; i++) {
 				cols[i].style.width = `${pct[i]}%`;
+				cols[i].setAttribute("width", `${pct[i]}%`);
 			}
 		}
 
 		if (layout.widthPct != null && layout.widthPct > 0) {
-			table.style.width = `${Math.min(100, Math.max(5, layout.widthPct))}%`;
+			const w = `${Math.min(100, Math.max(5, layout.widthPct))}%`;
+			table.style.width = w;
 			table.style.maxWidth = "100%";
+			table.style.tableLayout = "fixed";
 		}
 
-		applyRowHeightsPx(table, layout.rowHeightsPx);
+		if (layout.rowHeightsPx?.length) {
+			const rows = Array.from(table.rows);
+			for (let i = 0; i < rows.length; i++) {
+				rows[i].setAttribute("data-bpf-r", String(i));
+				const h = layout.rowHeightsPx[i];
+				if (h != null && h > 0) {
+					rows[i].style.height = `${h}px`;
+				}
+			}
+		}
 
 		if (layout.heightPx != null && layout.heightPx > 0) {
 			table.style.height = `${Math.round(layout.heightPx)}px`;
@@ -271,12 +321,16 @@ function tableHasCustomSizing(table: HTMLTableElement): boolean {
 	return false;
 }
 
-/** Snapshot all tables in root into a NoteTableLayouts payload. */
+/**
+ * Snapshot layouts. Measures WHILE chrome may still be present (more accurate),
+ * then strips chrome so leftover editor nodes are not counted as tables.
+ */
 export function captureNoteTableLayouts(root: HTMLElement): NoteTableLayouts {
-	stripEditorChrome(root);
-	const tables = Array.from(root.querySelectorAll("table")) as HTMLTableElement[];
-	const out: TableLayout[] = [];
-	tables.forEach((table, index) => {
+	const tablesBefore = Array.from(
+		root.querySelectorAll("table"),
+	) as HTMLTableElement[];
+	const snapshots: TableLayout[] = [];
+	tablesBefore.forEach((table, index) => {
 		if (!tableHasCustomSizing(table)) return;
 		const colWidthsPct = measureColWidthsPct(table);
 		const hasRowOverride = Array.from(table.rows).some((r) => !!r.style.height);
@@ -287,11 +341,9 @@ export function captureNoteTableLayouts(root: HTMLElement): NoteTableLayouts {
 			return Math.round(row.getBoundingClientRect().height);
 		});
 		const widthPct = measureTableWidthPct(table);
-		out.push({
+		snapshots.push({
 			index,
 			colWidthsPct,
-			// Always persist row heights when table height or any row was set —
-			// PDF print respects tr heights more reliably than table height alone.
 			rowHeightsPx:
 				hasRowOverride || (Number.isFinite(heightPx) && heightPx > 0)
 					? rowHeightsPx
@@ -301,19 +353,29 @@ export function captureNoteTableLayouts(root: HTMLElement): NoteTableLayouts {
 				Number.isFinite(heightPx) && heightPx > 0 ? heightPx : undefined,
 		});
 	});
-	return { tables: out };
+	stripEditorChrome(root);
+	// Re-resolve indices after unwrap (should match; re-map by order among remaining tables)
+	const tablesAfter = Array.from(root.querySelectorAll("table"));
+	for (const snap of snapshots) {
+		const still = tablesAfter[snap.index];
+		if (still) markTableTouched(still as HTMLTableElement);
+	}
+	return { tables: snapshots };
 }
 
 /** Clear sizing classes/styles on all tables (reset). */
 export function resetTableSizing(table: HTMLTableElement): void {
 	table.classList.remove("bpf-table-sized");
 	delete table.dataset.bpfTouched;
+	table.removeAttribute("data-bpf-i");
 	table.style.width = "";
 	table.style.height = "";
 	table.style.maxWidth = "";
+	table.style.tableLayout = "";
 	const group = table.querySelector("colgroup");
 	group?.remove();
 	for (const row of Array.from(table.rows)) {
 		row.style.height = "";
+		row.removeAttribute("data-bpf-r");
 	}
 }

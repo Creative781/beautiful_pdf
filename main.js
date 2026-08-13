@@ -273,9 +273,9 @@ table {
   line-height: ${lineHeightCss(e.table.lineHeight, 140)};
   break-inside: auto;
 }
-/* User-adjusted tables: width comes from inline style (px or %), not forced 100% */
+/* User-adjusted tables: width comes from inline style / layout CSS */
 table.bpf-table-sized {
-  table-layout: fixed;
+  table-layout: fixed !important;
   max-width: 100%;
 }
 th, td {
@@ -592,17 +592,6 @@ function padOrTrim(arr, n, fill) {
     out.push(fill);
   return out;
 }
-function applyRowHeightsPx(table, rowHeightsPx) {
-  if (!(rowHeightsPx == null ? void 0 : rowHeightsPx.length))
-    return;
-  const rows = Array.from(table.rows);
-  for (let i = 0; i < rows.length; i++) {
-    const h = rowHeightsPx[i];
-    if (h != null && h > 0) {
-      rows[i].style.height = `${h}px`;
-    }
-  }
-}
 function stripEditorChrome(root) {
   root.querySelectorAll(
     ".bpf-col-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom, .bpf-table-hint"
@@ -620,8 +609,42 @@ function stripEditorChrome(root) {
     wrap.remove();
   });
 }
-function applyNoteTableLayouts(root, layouts) {
+function tableLayoutsToCss(layouts) {
   var _a, _b;
+  if (!((_a = layouts == null ? void 0 : layouts.tables) == null ? void 0 : _a.length))
+    return "";
+  const lines = [];
+  for (const layout of layouts.tables) {
+    const t = `table[data-bpf-i="${layout.index}"]`;
+    const widthRule = layout.widthPct != null && layout.widthPct > 0 ? `width:${Number(layout.widthPct.toFixed(4))}% !important;` : "";
+    const heightRule = layout.heightPx != null && layout.heightPx > 0 ? `height:${Math.round(layout.heightPx)}px !important;` : "";
+    lines.push(
+      `${t}{table-layout:fixed !important;max-width:100% !important;${widthRule}${heightRule}}`
+    );
+    const pct = normalizePercents(layout.colWidthsPct || []);
+    pct.forEach((p, i) => {
+      const w = `${Number(p.toFixed(4))}%`;
+      lines.push(
+        `${t} > colgroup > col:nth-child(${i + 1}){width:${w} !important;}`
+      );
+      lines.push(
+        `${t} > thead > tr > *:nth-child(${i + 1}),${t} > tbody > tr:first-child > *:nth-child(${i + 1}),${t} > tr:first-child > *:nth-child(${i + 1}){width:${w} !important;}`
+      );
+    });
+    if ((_b = layout.rowHeightsPx) == null ? void 0 : _b.length) {
+      layout.rowHeightsPx.forEach((h, i) => {
+        if (h == null || h <= 0)
+          return;
+        lines.push(
+          `${t} tr[data-bpf-r="${i}"]{height:${Math.round(h)}px !important;}`
+        );
+      });
+    }
+  }
+  return lines.join("\n");
+}
+function applyNoteTableLayouts(root, layouts) {
+  var _a, _b, _c;
   if (!((_a = layouts == null ? void 0 : layouts.tables) == null ? void 0 : _a.length))
     return;
   const tables = Array.from(root.querySelectorAll("table"));
@@ -630,6 +653,7 @@ function applyNoteTableLayouts(root, layouts) {
     if (!table)
       continue;
     table.classList.add("bpf-table-sized");
+    table.setAttribute("data-bpf-i", String(layout.index));
     if ((_b = layout.colWidthsPct) == null ? void 0 : _b.length) {
       const n = Math.max(tableColumnCount(table), layout.colWidthsPct.length);
       const pct = normalizePercents(
@@ -638,13 +662,25 @@ function applyNoteTableLayouts(root, layouts) {
       const cols = ensureColgroup(table, n);
       for (let i = 0; i < n; i++) {
         cols[i].style.width = `${pct[i]}%`;
+        cols[i].setAttribute("width", `${pct[i]}%`);
       }
     }
     if (layout.widthPct != null && layout.widthPct > 0) {
-      table.style.width = `${Math.min(100, Math.max(5, layout.widthPct))}%`;
+      const w = `${Math.min(100, Math.max(5, layout.widthPct))}%`;
+      table.style.width = w;
       table.style.maxWidth = "100%";
+      table.style.tableLayout = "fixed";
     }
-    applyRowHeightsPx(table, layout.rowHeightsPx);
+    if ((_c = layout.rowHeightsPx) == null ? void 0 : _c.length) {
+      const rows = Array.from(table.rows);
+      for (let i = 0; i < rows.length; i++) {
+        rows[i].setAttribute("data-bpf-r", String(i));
+        const h = layout.rowHeightsPx[i];
+        if (h != null && h > 0) {
+          rows[i].style.height = `${h}px`;
+        }
+      }
+    }
     if (layout.heightPx != null && layout.heightPx > 0) {
       table.style.height = `${Math.round(layout.heightPx)}px`;
     }
@@ -664,10 +700,11 @@ function tableHasCustomSizing(table) {
   return false;
 }
 function captureNoteTableLayouts(root) {
-  stripEditorChrome(root);
-  const tables = Array.from(root.querySelectorAll("table"));
-  const out = [];
-  tables.forEach((table, index) => {
+  const tablesBefore = Array.from(
+    root.querySelectorAll("table")
+  );
+  const snapshots = [];
+  tablesBefore.forEach((table, index) => {
     if (!tableHasCustomSizing(table))
       return;
     const colWidthsPct = measureColWidthsPct(table);
@@ -680,28 +717,36 @@ function captureNoteTableLayouts(root) {
       return Math.round(row.getBoundingClientRect().height);
     });
     const widthPct = measureTableWidthPct(table);
-    out.push({
+    snapshots.push({
       index,
       colWidthsPct,
-      // Always persist row heights when table height or any row was set —
-      // PDF print respects tr heights more reliably than table height alone.
       rowHeightsPx: hasRowOverride || Number.isFinite(heightPx) && heightPx > 0 ? rowHeightsPx : void 0,
       widthPct,
       heightPx: Number.isFinite(heightPx) && heightPx > 0 ? heightPx : void 0
     });
   });
-  return { tables: out };
+  stripEditorChrome(root);
+  const tablesAfter = Array.from(root.querySelectorAll("table"));
+  for (const snap of snapshots) {
+    const still = tablesAfter[snap.index];
+    if (still)
+      markTableTouched(still);
+  }
+  return { tables: snapshots };
 }
 function resetTableSizing(table) {
   table.classList.remove("bpf-table-sized");
   delete table.dataset.bpfTouched;
+  table.removeAttribute("data-bpf-i");
   table.style.width = "";
   table.style.height = "";
   table.style.maxWidth = "";
+  table.style.tableLayout = "";
   const group = table.querySelector("colgroup");
   group == null ? void 0 : group.remove();
   for (const row of Array.from(table.rows)) {
     row.style.height = "";
+    row.removeAttribute("data-bpf-r");
   }
 }
 
@@ -734,6 +779,7 @@ async function renderNoteHtml(app, file, profile, options = {}) {
     stripUiChrome(viewEl);
     applyNoteTableLayouts(viewEl, options.tableLayouts);
     const css = profileToCss(profile);
+    const layoutCss = tableLayoutsToCss(options.tableLayouts);
     const bodyHtml = viewEl.innerHTML;
     const htmlDocument = `<!DOCTYPE html>
 <html>
@@ -741,6 +787,7 @@ async function renderNoteHtml(app, file, profile, options = {}) {
 <meta charset="utf-8" />
 <title>${escapeAttr(title)}</title>
 <style>${css}</style>
+${layoutCss ? `<style id="bpf-table-layouts">${layoutCss}</style>` : ""}
 </head>
 <body>
 <div class="markdown-preview-view markdown-rendered">
@@ -2203,11 +2250,12 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     this.setStatus("All table sizing cleared");
   }
   async applyAndClose() {
-    var _a;
+    var _a, _b;
     const root = this.root();
-    if (!root)
+    if (!root) {
+      new import_obsidian3.Notice("Beautiful PDF: table editor DOM not ready");
       return;
-    stripEditorChrome(root);
+    }
     const layouts = captureNoteTableLayouts(root);
     if (!this.plugin.settings.tableLayouts) {
       this.plugin.settings.tableLayouts = {};
@@ -2220,9 +2268,10 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       );
     }
     await this.plugin.saveSettings();
-    const saved = (_a = this.plugin.settings.tableLayouts[this.file.path]) != null ? _a : { tables: [] };
+    const saved = (_b = (_a = this.plugin.settings.tableLayouts) == null ? void 0 : _a[this.file.path]) != null ? _b : { tables: [] };
+    const callback = this.onApplied;
     this.close();
-    this.onApplied(saved);
+    callback(saved);
     new import_obsidian3.Notice(
       saved.tables.length ? `Saved layout for ${saved.tables.length} table(s)` : "No custom table sizing to save"
     );
@@ -2245,14 +2294,16 @@ function layoutsForFile(plugin, file) {
 
 // src/preview.ts
 var PreviewModal = class extends import_obsidian4.Modal {
-  constructor(app, plugin, file) {
+  constructor(app, plugin, file, initialLayouts) {
     super(app);
     this.iframeEl = null;
     this.statusEl = null;
     this.blobUrl = null;
-    this.generating = false;
+    /** Incremented on each refresh so an older generate cannot overwrite a newer one. */
+    this.genToken = 0;
     this.plugin = plugin;
     this.file = file;
+    this.initialLayouts = initialLayouts;
   }
   onOpen() {
     const { contentEl } = this;
@@ -2294,29 +2345,38 @@ var PreviewModal = class extends import_obsidian4.Modal {
     this.iframeEl = wrap.createEl("iframe", {
       attr: { title: "PDF preview" }
     });
-    void this.refresh();
+    if (this.initialLayouts !== void 0) {
+      void this.refresh(this.initialLayouts);
+      this.initialLayouts = void 0;
+    } else {
+      void this.refresh();
+    }
   }
+  /**
+   * @param layoutsOverride When provided (including null), use this instead of
+   *   reading saved settings — required right after Adjust tables.
+   */
   async refresh(layoutsOverride) {
     var _a;
-    if (this.generating)
-      return;
-    this.generating = true;
+    const token = ++this.genToken;
     this.setStatus("Generating PDF\u2026");
     try {
       const profile = getActiveProfile(this.plugin.settings);
-      const layouts = layoutsOverride !== void 0 ? layoutsOverride : layoutsForFile(this.plugin, this.file);
+      const layouts = arguments.length >= 1 ? layoutsOverride : layoutsForFile(this.plugin, this.file);
       const { data } = await generatePdf(this.app, this.file, profile, {
         tableLayouts: layouts
       });
+      if (token !== this.genToken)
+        return;
       this.showPdf(data);
       const layoutNote = ((_a = layouts == null ? void 0 : layouts.tables) == null ? void 0 : _a.length) ? ` \xB7 ${layouts.tables.length} custom table(s)` : "";
       this.setStatus(`Profile: ${profile.name}${layoutNote}`);
     } catch (err) {
+      if (token !== this.genToken)
+        return;
       console.error(err);
       this.setStatus("Failed");
       new import_obsidian4.Notice(`Preview failed: ${String(err)}`);
-    } finally {
-      this.generating = false;
     }
   }
   showPdf(data) {
@@ -3349,8 +3409,8 @@ var BeautifulPdfPlugin = class extends import_obsidian7.Plugin {
         if (!file)
           return false;
         if (!checking) {
-          new TableAdjustModal(this.app, this, file, () => {
-            void this.openPreview(file);
+          new TableAdjustModal(this.app, this, file, (layouts) => {
+            new PreviewModal(this.app, this, file, layouts).open();
           }).open();
         }
         return true;
@@ -3420,8 +3480,8 @@ ${PAGE_BREAK_SNIPPET}` : PAGE_BREAK_SNIPPET;
         });
         menu.addItem((item) => {
           item.setTitle("Beautiful PDF: Adjust tables\u2026").setIcon("table").onClick(() => {
-            new TableAdjustModal(this.app, this, file, () => {
-              void this.openPreview(file);
+            new TableAdjustModal(this.app, this, file, (layouts) => {
+              new PreviewModal(this.app, this, file, layouts).open();
             }).open();
           });
         });

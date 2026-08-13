@@ -12,12 +12,20 @@ export class PreviewModal extends Modal {
 	private iframeEl: HTMLIFrameElement | null = null;
 	private statusEl: HTMLElement | null = null;
 	private blobUrl: string | null = null;
-	private generating = false;
+	/** Incremented on each refresh so an older generate cannot overwrite a newer one. */
+	private genToken = 0;
+	private initialLayouts: NoteTableLayouts | null | undefined;
 
-	constructor(app: App, plugin: BeautifulPdfPlugin, file: TFile) {
+	constructor(
+		app: App,
+		plugin: BeautifulPdfPlugin,
+		file: TFile,
+		initialLayouts?: NoteTableLayouts | null,
+	) {
 		super(app);
 		this.plugin = plugin;
 		this.file = file;
+		this.initialLayouts = initialLayouts;
 	}
 
 	onOpen(): void {
@@ -68,33 +76,41 @@ export class PreviewModal extends Modal {
 			attr: { title: "PDF preview" },
 		});
 
-		void this.refresh();
+		if (this.initialLayouts !== undefined) {
+			void this.refresh(this.initialLayouts);
+			this.initialLayouts = undefined;
+		} else {
+			void this.refresh();
+		}
 	}
 
+	/**
+	 * @param layoutsOverride When provided (including null), use this instead of
+	 *   reading saved settings — required right after Adjust tables.
+	 */
 	async refresh(layoutsOverride?: NoteTableLayouts | null): Promise<void> {
-		if (this.generating) return;
-		this.generating = true;
+		const token = ++this.genToken;
 		this.setStatus("Generating PDF…");
 		try {
 			const profile = getActiveProfile(this.plugin.settings);
 			const layouts =
-				layoutsOverride !== undefined
+				arguments.length >= 1
 					? layoutsOverride
 					: layoutsForFile(this.plugin, this.file);
 			const { data } = await generatePdf(this.app, this.file, profile, {
 				tableLayouts: layouts,
 			});
+			if (token !== this.genToken) return;
 			this.showPdf(data);
 			const layoutNote = layouts?.tables?.length
 				? ` · ${layouts.tables.length} custom table(s)`
 				: "";
 			this.setStatus(`Profile: ${profile.name}${layoutNote}`);
 		} catch (err) {
+			if (token !== this.genToken) return;
 			console.error(err);
 			this.setStatus("Failed");
 			new Notice(`Preview failed: ${String(err)}`);
-		} finally {
-			this.generating = false;
 		}
 	}
 

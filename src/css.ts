@@ -160,9 +160,9 @@ table {
   line-height: ${lineHeightCss(e.table.lineHeight, 140)};
   break-inside: auto;
 }
-/* User-adjusted tables: width comes from inline style (px or %), not forced 100% */
+/* User-adjusted tables: width comes from inline style / layout CSS */
 table.bpf-table-sized {
-  table-layout: fixed;
+  table-layout: fixed !important;
   max-width: 100%;
 }
 th, td {

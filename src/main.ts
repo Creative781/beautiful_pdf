@@ -38,8 +38,8 @@ export default class BeautifulPdfPlugin extends Plugin {
 				const file = this.getActiveMarkdownFile();
 				if (!file) return false;
 				if (!checking) {
-					new TableAdjustModal(this.app, this, file, () => {
-						void this.openPreview(file);
+					new TableAdjustModal(this.app, this, file, (layouts) => {
+						new PreviewModal(this.app, this, file, layouts).open();
 					}).open();
 				}
 				return true;
@@ -120,8 +120,8 @@ export default class BeautifulPdfPlugin extends Plugin {
 						.setTitle("Beautiful PDF: Adjust tables…")
 						.setIcon("table")
 						.onClick(() => {
-							new TableAdjustModal(this.app, this, file, () => {
-								void this.openPreview(file);
+							new TableAdjustModal(this.app, this, file, (layouts) => {
+								new PreviewModal(this.app, this, file, layouts).open();
 							}).open();
 						});
 				});
