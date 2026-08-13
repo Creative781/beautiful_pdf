@@ -1,5 +1,9 @@
 import { App, Component, MarkdownRenderer, TFile, requestUrl } from "obsidian";
 import { profileToCss } from "./css";
+import {
+	applyNoteTableLayouts,
+	type NoteTableLayouts,
+} from "./table-layout";
 import type { Profile } from "./types";
 import { applyPageBreakMarkers } from "./util";
 
@@ -11,11 +15,17 @@ export interface RenderedNote {
 	css: string;
 }
 
+export interface RenderOptions {
+	/** Saved or freshly edited table column/row layouts for this note. */
+	tableLayouts?: NoteTableLayouts | null;
+}
+
 /** Render a note to a self-contained HTML document using the active profile CSS. */
 export async function renderNoteHtml(
 	app: App,
 	file: TFile,
 	profile: Profile,
+	options: RenderOptions = {},
 ): Promise<RenderedNote> {
 	const raw = await app.vault.cachedRead(file);
 	const markdown = applyPageBreakMarkers(raw);
@@ -46,6 +56,7 @@ export async function renderNoteHtml(
 		await rewriteInternalImages(app, file, viewEl);
 		cleanupImageEmbeds(viewEl);
 		stripUiChrome(viewEl);
+		applyNoteTableLayouts(viewEl, options.tableLayouts);
 
 		const css = profileToCss(profile);
 		const bodyHtml = viewEl.innerHTML;

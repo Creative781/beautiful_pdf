@@ -27,7 +27,7 @@ __export(main_exports, {
   default: () => BeautifulPdfPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/export.ts
 var import_obsidian2 = require("obsidian");
@@ -261,7 +261,9 @@ pre > button,
   ]));
   parts.push(`
 table {
-  width: 100%;
+  width: auto;
+  max-width: 100%;
+  table-layout: auto;
   border-collapse: collapse;
   margin-top: ${e.table.marginTop}pt;
   margin-bottom: ${e.table.marginBottom}pt;
@@ -271,11 +273,20 @@ table {
   line-height: ${lineHeightCss(e.table.lineHeight, 140)};
   break-inside: auto;
 }
+/* User-adjusted column widths from the table layout step */
+table.bpf-table-sized {
+  width: 100%;
+  table-layout: fixed;
+}
 th, td {
   border: 1px solid #bbb;
   padding: 5pt 7pt;
   text-align: left;
   vertical-align: top;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+  line-break: strict;
 }
 th {
   font-family: ${e.tableHeader.fontFamily};
@@ -454,7 +465,157 @@ function escapeHtml(s) {
 
 // src/render.ts
 var import_obsidian = require("obsidian");
-async function renderNoteHtml(app, file, profile) {
+
+// src/table-layout.ts
+function tableColumnCount(table) {
+  let max = 0;
+  for (const row of Array.from(table.rows)) {
+    let n = 0;
+    for (const cell of Array.from(row.cells)) {
+      n += cell.colSpan || 1;
+    }
+    if (n > max)
+      max = n;
+  }
+  return max;
+}
+function ensureColgroup(table, colCount) {
+  var _a;
+  let group = table.querySelector("colgroup");
+  if (!group) {
+    group = table.ownerDocument.createElement("colgroup");
+    table.insertBefore(group, table.firstChild);
+  }
+  while (group.children.length > colCount) {
+    (_a = group.lastElementChild) == null ? void 0 : _a.remove();
+  }
+  while (group.children.length < colCount) {
+    group.appendChild(table.ownerDocument.createElement("col"));
+  }
+  return Array.from(group.children);
+}
+function normalizePercents(values) {
+  const cleaned = values.map((v) => Number.isFinite(v) && v > 0 ? v : 0);
+  const sum = cleaned.reduce((a, b) => a + b, 0);
+  if (sum <= 0) {
+    const even = 100 / Math.max(1, cleaned.length);
+    return cleaned.map(() => even);
+  }
+  return cleaned.map((v) => v / sum * 100);
+}
+function measureColWidthsPct(table) {
+  const n = tableColumnCount(table);
+  if (n === 0)
+    return [];
+  const cols = ensureColgroup(table, n);
+  const tableW = Math.max(1, table.getBoundingClientRect().width);
+  const widths = [];
+  for (let i = 0; i < n; i++) {
+    const styleW = cols[i].style.width;
+    if (styleW.endsWith("%")) {
+      const p = parseFloat(styleW);
+      widths.push(Number.isFinite(p) ? p : 0);
+      continue;
+    }
+    const cell = cellAtColumn(table, 0, i);
+    if (cell) {
+      widths.push(cell.getBoundingClientRect().width / tableW * 100);
+    } else {
+      widths.push(100 / n);
+    }
+  }
+  return normalizePercents(widths);
+}
+function cellAtColumn(table, rowIndex, colIndex) {
+  const row = table.rows[rowIndex];
+  if (!row)
+    return null;
+  let at = 0;
+  for (const cell of Array.from(row.cells)) {
+    const span = cell.colSpan || 1;
+    if (colIndex >= at && colIndex < at + span)
+      return cell;
+    at += span;
+  }
+  return null;
+}
+function applyColWidthsPct(table, colWidthsPct) {
+  const n = Math.max(tableColumnCount(table), colWidthsPct.length);
+  const pct = normalizePercents(
+    colWidthsPct.length === n ? colWidthsPct : padOrTrim(colWidthsPct, n, 100 / Math.max(1, n))
+  );
+  const cols = ensureColgroup(table, n);
+  table.classList.add("bpf-table-sized");
+  for (let i = 0; i < n; i++) {
+    cols[i].style.width = `${pct[i]}%`;
+  }
+}
+function padOrTrim(arr, n, fill) {
+  const out = arr.slice(0, n);
+  while (out.length < n)
+    out.push(fill);
+  return out;
+}
+function applyRowHeightsPx(table, rowHeightsPx) {
+  if (!(rowHeightsPx == null ? void 0 : rowHeightsPx.length))
+    return;
+  const rows = Array.from(table.rows);
+  for (let i = 0; i < rows.length; i++) {
+    const h = rowHeightsPx[i];
+    if (h != null && h > 0) {
+      rows[i].style.height = `${h}px`;
+    }
+  }
+}
+function applyNoteTableLayouts(root, layouts) {
+  var _a, _b;
+  if (!((_a = layouts == null ? void 0 : layouts.tables) == null ? void 0 : _a.length))
+    return;
+  const tables = Array.from(root.querySelectorAll("table"));
+  for (const layout of layouts.tables) {
+    const table = tables[layout.index];
+    if (!table)
+      continue;
+    if ((_b = layout.colWidthsPct) == null ? void 0 : _b.length) {
+      applyColWidthsPct(table, layout.colWidthsPct);
+    }
+    applyRowHeightsPx(table, layout.rowHeightsPx);
+  }
+}
+function captureNoteTableLayouts(root) {
+  const tables = Array.from(root.querySelectorAll("table"));
+  const out = [];
+  tables.forEach((table, index) => {
+    const colWidthsPct = measureColWidthsPct(table);
+    const rowHeightsPx = Array.from(table.rows).map((row) => {
+      const h = parseFloat(row.style.height);
+      if (Number.isFinite(h) && h > 0)
+        return h;
+      return Math.round(row.getBoundingClientRect().height);
+    });
+    const hasSized = table.classList.contains("bpf-table-sized");
+    const hasRowOverride = Array.from(table.rows).some((r) => !!r.style.height);
+    if (!hasSized && !hasRowOverride)
+      return;
+    out.push({
+      index,
+      colWidthsPct,
+      rowHeightsPx: hasRowOverride ? rowHeightsPx : void 0
+    });
+  });
+  return { tables: out };
+}
+function resetTableSizing(table) {
+  table.classList.remove("bpf-table-sized");
+  const group = table.querySelector("colgroup");
+  group == null ? void 0 : group.remove();
+  for (const row of Array.from(table.rows)) {
+    row.style.height = "";
+  }
+}
+
+// src/render.ts
+async function renderNoteHtml(app, file, profile, options = {}) {
   var _a, _b;
   const raw = await app.vault.cachedRead(file);
   const markdown = applyPageBreakMarkers(raw);
@@ -478,6 +639,7 @@ async function renderNoteHtml(app, file, profile) {
     await rewriteInternalImages(app, file, viewEl);
     cleanupImageEmbeds(viewEl);
     stripUiChrome(viewEl);
+    applyNoteTableLayouts(viewEl, options.tableLayouts);
     const css = profileToCss(profile);
     const bodyHtml = viewEl.innerHTML;
     const htmlDocument = `<!DOCTYPE html>
@@ -694,15 +856,17 @@ function getElectron() {
   }
   return { remote, fs };
 }
-async function generatePdf(app, file, profile) {
-  const rendered = await renderNoteHtml(app, file, profile);
+async function generatePdf(app, file, profile, options = {}) {
+  const rendered = await renderNoteHtml(app, file, profile, {
+    tableLayouts: options.tableLayouts
+  });
   const data = await printHtmlToPdf(rendered, profile);
   return { data, title: rendered.title };
 }
-async function exportPdfToFile(app, file, profile, openAfter = true) {
+async function exportPdfToFile(app, file, profile, openAfter = true, options = {}) {
   const notice = new import_obsidian2.Notice("Beautiful PDF: generating\u2026", 0);
   try {
-    const { data, title } = await generatePdf(app, file, profile);
+    const { data, title } = await generatePdf(app, file, profile, options);
     const { remote, fs } = getElectron();
     const result = await remote.dialog.showSaveDialog({
       title: "Export Beautiful PDF",
@@ -816,7 +980,7 @@ function sleep2(ms) {
 }
 
 // src/preview.ts
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // src/types.ts
 var FRAME_PRESET_OPTIONS = [
@@ -1262,7 +1426,8 @@ function createDefaultSettings() {
   return {
     settingsVersion: 3,
     activeProfileId: profiles[0].id,
-    profiles
+    profiles,
+    tableLayouts: {}
   };
 }
 function getActiveProfile(settings) {
@@ -1289,8 +1454,417 @@ function createBlankProfile(name) {
   };
 }
 
+// src/table-editor.ts
+var import_obsidian3 = require("obsidian");
+var TableAdjustModal = class extends import_obsidian3.Modal {
+  constructor(app, plugin, file, onApplied) {
+    super(app);
+    this.frameEl = null;
+    this.statusEl = null;
+    this.selected = /* @__PURE__ */ new Set();
+    this.activeTableIndex = 0;
+    this.detachFns = [];
+    this.plugin = plugin;
+    this.file = file;
+    this.onApplied = onApplied;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    this.modalEl.addClass("beautiful-pdf-table-adjust-modal");
+    contentEl.empty();
+    contentEl.createEl("h2", { text: "Adjust tables" });
+    const tip = contentEl.createDiv({ cls: "beautiful-pdf-tip" });
+    tip.setText(
+      "Drag column edges to resize. Click cells to select (Ctrl/Cmd+click for multiple). Then equalize width or height. Apply saves for this note and continues to PDF."
+    );
+    const toolbar = contentEl.createDiv({ cls: "beautiful-pdf-toolbar" });
+    const mk = (label, cls, fn) => {
+      const b = toolbar.createEl("button", { text: label, cls, attr: { type: "button" } });
+      b.onclick = () => fn();
+      return b;
+    };
+    mk("Equalize column widths", "", () => this.equalizeSelectedColumns());
+    mk("Equalize row heights", "", () => this.equalizeSelectedRows());
+    mk("Reset active table", "", () => this.resetActiveTable());
+    mk("Clear all sizing", "", () => this.clearAllSizing());
+    mk("Apply & preview PDF", "mod-cta", () => void this.applyAndClose());
+    this.statusEl = toolbar.createDiv({
+      cls: "beautiful-pdf-status",
+      text: "Loading\u2026"
+    });
+    const wrap = contentEl.createDiv({ cls: "beautiful-pdf-table-adjust-frame" });
+    this.frameEl = wrap.createEl("iframe", {
+      attr: { title: "Table layout editor" }
+    });
+    void this.loadHtml();
+  }
+  onClose() {
+    this.teardownHandlers();
+    this.contentEl.empty();
+  }
+  setStatus(text) {
+    var _a;
+    (_a = this.statusEl) == null ? void 0 : _a.setText(text);
+  }
+  doc() {
+    var _a, _b;
+    return (_b = (_a = this.frameEl) == null ? void 0 : _a.contentDocument) != null ? _b : null;
+  }
+  root() {
+    var _a, _b;
+    return (_b = (_a = this.doc()) == null ? void 0 : _a.body) != null ? _b : null;
+  }
+  async loadHtml() {
+    var _a, _b, _c, _d, _e, _f;
+    try {
+      const profile = getActiveProfile(this.plugin.settings);
+      const saved = (_b = (_a = this.plugin.settings.tableLayouts) == null ? void 0 : _a[this.file.path]) != null ? _b : null;
+      const rendered = await renderNoteHtml(this.app, this.file, profile, {
+        tableLayouts: saved
+      });
+      const page = profile.page;
+      const widthMm = page.pageSize === "Custom" ? page.pageWidthMm : page.pageSize === "Letter" || page.pageSize === "Legal" ? 215.9 : 210;
+      const contentWidthMm = Math.max(
+        40,
+        widthMm - page.marginLeftMm - page.marginRightMm
+      );
+      const editorCss = `
+${rendered.css}
+html, body {
+  margin: 0;
+  padding: 16px;
+  background: #f3f4f6;
+}
+.markdown-preview-view {
+  max-width: ${contentWidthMm}mm;
+  margin: 0 auto;
+  background: #fff;
+  padding: 12mm;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+table { position: relative; }
+td.bpf-cell-selected, th.bpf-cell-selected {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+  background: rgba(37, 99, 235, 0.08) !important;
+}
+.bpf-col-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  margin-left: -3px;
+  cursor: col-resize;
+  z-index: 5;
+  background: transparent;
+}
+.bpf-col-handle:hover, .bpf-col-handle.is-dragging {
+  background: rgba(37, 99, 235, 0.35);
+}
+.bpf-table-hint {
+  font-size: 11px;
+  color: #6b7280;
+  margin: 4px 0 10px;
+}
+`;
+      const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8" /><style>${editorCss}</style></head>
+<body>${(_d = (_c = rendered.htmlDocument.match(/<body[^>]*>([\s\S]*)<\/body>/i)) == null ? void 0 : _c[1]) != null ? _d : rendered.bodyHtml}
+</body></html>`;
+      if (!this.frameEl)
+        return;
+      this.frameEl.srcdoc = html;
+      await new Promise((resolve) => {
+        if (!this.frameEl) {
+          resolve();
+          return;
+        }
+        this.frameEl.onload = () => resolve();
+      });
+      this.wireTables();
+      const n = (_f = (_e = this.doc()) == null ? void 0 : _e.querySelectorAll("table").length) != null ? _f : 0;
+      this.setStatus(
+        n === 0 ? "No tables in this note" : `${n} table${n === 1 ? "" : "s"} \xB7 click cells \xB7 drag column edges`
+      );
+    } catch (err) {
+      console.error(err);
+      this.setStatus("Failed to load");
+      new import_obsidian3.Notice(`Table adjust failed: ${String(err)}`);
+    }
+  }
+  teardownHandlers() {
+    for (const fn of this.detachFns)
+      fn();
+    this.detachFns = [];
+  }
+  wireTables() {
+    this.teardownHandlers();
+    this.selected.clear();
+    const doc = this.doc();
+    const root = this.root();
+    if (!doc || !root)
+      return;
+    const tables = Array.from(root.querySelectorAll("table"));
+    tables.forEach((table, tableIndex) => {
+      var _a;
+      const hint = doc.createElement("div");
+      hint.className = "bpf-table-hint";
+      hint.textContent = `Table ${tableIndex + 1}`;
+      (_a = table.parentElement) == null ? void 0 : _a.insertBefore(hint, table);
+      const onCellClick = (ev) => {
+        var _a2, _b;
+        const cell = (_b = (_a2 = ev.target) == null ? void 0 : _a2.closest) == null ? void 0 : _b.call(_a2, "td, th");
+        if (!cell || !table.contains(cell))
+          return;
+        ev.preventDefault();
+        this.activeTableIndex = tableIndex;
+        const row = cell.parentElement;
+        const rowIndex = row.rowIndex;
+        const colIndex = cell.cellIndex;
+        const key = `${tableIndex}:${rowIndex}:${colIndex}`;
+        if (ev.metaKey || ev.ctrlKey) {
+          if (this.selected.has(key))
+            this.selected.delete(key);
+          else
+            this.selected.add(key);
+        } else {
+          this.selected.clear();
+          this.selected.add(key);
+        }
+        this.paintSelection();
+        this.setStatus(
+          `Table ${tableIndex + 1} \xB7 ${this.selected.size} cell(s) selected`
+        );
+      };
+      table.addEventListener("click", onCellClick);
+      this.detachFns.push(() => table.removeEventListener("click", onCellClick));
+      this.installColHandles(table, tableIndex);
+    });
+  }
+  paintSelection() {
+    var _a;
+    const root = this.root();
+    if (!root)
+      return;
+    root.querySelectorAll(".bpf-cell-selected").forEach((el2) => {
+      el2.classList.remove("bpf-cell-selected");
+    });
+    const tables = Array.from(root.querySelectorAll("table"));
+    for (const key of this.selected) {
+      const [ti, ri, ci] = key.split(":").map(Number);
+      const table = tables[ti];
+      const cell = (_a = table == null ? void 0 : table.rows[ri]) == null ? void 0 : _a.cells[ci];
+      cell == null ? void 0 : cell.classList.add("bpf-cell-selected");
+    }
+  }
+  installColHandles(table, tableIndex) {
+    var _a;
+    const doc = this.doc();
+    if (!doc)
+      return;
+    table.querySelectorAll(".bpf-col-handle").forEach((h) => h.remove());
+    const n = tableColumnCount(table);
+    if (n < 2)
+      return;
+    const rect = table.getBoundingClientRect();
+    const tableLeft = rect.left;
+    for (let i = 0; i < n - 1; i++) {
+      const cell = (_a = table.rows[0]) == null ? void 0 : _a.cells[i];
+      if (!cell)
+        continue;
+      const cr = cell.getBoundingClientRect();
+      const handle = doc.createElement("div");
+      handle.className = "bpf-col-handle";
+      handle.style.left = `${cr.right - tableLeft}px`;
+      handle.dataset.col = String(i);
+      table.appendChild(handle);
+      const onDown = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.activeTableIndex = tableIndex;
+        handle.classList.add("is-dragging");
+        const startPct = measureColWidthsPct(table);
+        applyColWidthsPct(table, startPct);
+        const startX = ev.clientX;
+        const left = i;
+        const right = i + 1;
+        const onMove = (mv) => {
+          const tableW = Math.max(1, table.getBoundingClientRect().width);
+          const dxPct = (mv.clientX - startX) / tableW * 100;
+          const next = startPct.slice();
+          const min = 6;
+          let a = startPct[left] + dxPct;
+          let b = startPct[right] - dxPct;
+          if (a < min) {
+            b -= min - a;
+            a = min;
+          }
+          if (b < min) {
+            a -= min - b;
+            b = min;
+          }
+          next[left] = a;
+          next[right] = b;
+          applyColWidthsPct(table, normalizePercents(next));
+          const tLeft = table.getBoundingClientRect().left;
+          table.querySelectorAll(".bpf-col-handle").forEach((h) => {
+            var _a2;
+            const col = Number(h.dataset.col);
+            const c = (_a2 = table.rows[0]) == null ? void 0 : _a2.cells[col];
+            if (!c)
+              return;
+            h.style.left = `${c.getBoundingClientRect().right - tLeft}px`;
+          });
+        };
+        const onUp = () => {
+          handle.classList.remove("is-dragging");
+          doc.removeEventListener("mousemove", onMove);
+          doc.removeEventListener("mouseup", onUp);
+          this.setStatus(`Table ${tableIndex + 1} \xB7 columns updated`);
+        };
+        doc.addEventListener("mousemove", onMove);
+        doc.addEventListener("mouseup", onUp);
+      };
+      handle.addEventListener("mousedown", onDown);
+      this.detachFns.push(() => handle.removeEventListener("mousedown", onDown));
+    }
+  }
+  selectedInActiveTable() {
+    const root = this.root();
+    if (!root)
+      return null;
+    const tables = Array.from(root.querySelectorAll("table"));
+    const table = tables[this.activeTableIndex];
+    if (!table)
+      return null;
+    const cols = /* @__PURE__ */ new Set();
+    const rows = /* @__PURE__ */ new Set();
+    for (const key of this.selected) {
+      const [ti, ri, ci] = key.split(":").map(Number);
+      if (ti !== this.activeTableIndex)
+        continue;
+      rows.add(ri);
+      cols.add(ci);
+    }
+    return { table, cols, rows };
+  }
+  equalizeSelectedColumns() {
+    const ctx = this.selectedInActiveTable();
+    if (!ctx || ctx.cols.size < 2) {
+      new import_obsidian3.Notice("Select two or more cells in different columns first.");
+      return;
+    }
+    const { table, cols } = ctx;
+    const pct = measureColWidthsPct(table);
+    const indices = Array.from(cols).sort((a, b) => a - b);
+    const avg = indices.reduce((s, i) => {
+      var _a;
+      return s + ((_a = pct[i]) != null ? _a : 0);
+    }, 0) / Math.max(1, indices.length);
+    for (const i of indices)
+      pct[i] = avg;
+    applyColWidthsPct(table, normalizePercents(pct));
+    this.reinstallHandlesForActive();
+    this.setStatus(`Table ${this.activeTableIndex + 1} \xB7 column widths equalized`);
+  }
+  equalizeSelectedRows() {
+    const ctx = this.selectedInActiveTable();
+    if (!ctx || ctx.rows.size < 2) {
+      new import_obsidian3.Notice("Select two or more cells in different rows first.");
+      return;
+    }
+    const { table, rows } = ctx;
+    const indices = Array.from(rows).sort((a, b) => a - b);
+    let maxH = 0;
+    for (const i of indices) {
+      const row = table.rows[i];
+      if (!row)
+        continue;
+      maxH = Math.max(maxH, row.getBoundingClientRect().height);
+    }
+    for (const i of indices) {
+      const row = table.rows[i];
+      if (row)
+        row.style.height = `${Math.round(maxH)}px`;
+    }
+    this.setStatus(`Table ${this.activeTableIndex + 1} \xB7 row heights equalized`);
+  }
+  reinstallHandlesForActive() {
+    const root = this.root();
+    if (!root)
+      return;
+    const tables = Array.from(root.querySelectorAll("table"));
+    const table = tables[this.activeTableIndex];
+    if (!table)
+      return;
+    table.querySelectorAll(".bpf-col-handle").forEach((h) => h.remove());
+    this.installColHandles(table, this.activeTableIndex);
+  }
+  resetActiveTable() {
+    const root = this.root();
+    if (!root)
+      return;
+    const tables = Array.from(root.querySelectorAll("table"));
+    const table = tables[this.activeTableIndex];
+    if (!table)
+      return;
+    resetTableSizing(table);
+    table.querySelectorAll(".bpf-col-handle").forEach((h) => h.remove());
+    this.installColHandles(table, this.activeTableIndex);
+    this.setStatus(`Table ${this.activeTableIndex + 1} \xB7 reset`);
+  }
+  clearAllSizing() {
+    const root = this.root();
+    if (!root)
+      return;
+    const tables = Array.from(root.querySelectorAll("table"));
+    tables.forEach((table, i) => {
+      resetTableSizing(table);
+      table.querySelectorAll(".bpf-col-handle").forEach((h) => h.remove());
+      this.installColHandles(table, i);
+    });
+    if (this.plugin.settings.tableLayouts) {
+      delete this.plugin.settings.tableLayouts[this.file.path];
+    }
+    void this.plugin.saveSettings();
+    this.setStatus("All table sizing cleared");
+  }
+  async applyAndClose() {
+    const root = this.root();
+    if (!root)
+      return;
+    const tables = Array.from(root.querySelectorAll("table"));
+    for (const table of tables) {
+      if (table.querySelector("colgroup")) {
+        const pct = measureColWidthsPct(table);
+        applyColWidthsPct(table, pct);
+        ensureColgroup(table, pct.length);
+      }
+    }
+    const layouts = captureNoteTableLayouts(root);
+    if (!this.plugin.settings.tableLayouts) {
+      this.plugin.settings.tableLayouts = {};
+    }
+    if (layouts.tables.length === 0) {
+      delete this.plugin.settings.tableLayouts[this.file.path];
+    } else {
+      this.plugin.settings.tableLayouts[this.file.path] = layouts;
+    }
+    await this.plugin.saveSettings();
+    this.close();
+    this.onApplied(layouts);
+    new import_obsidian3.Notice(
+      layouts.tables.length ? `Saved layout for ${layouts.tables.length} table(s)` : "No custom table sizing to save"
+    );
+  }
+};
+function layoutsForFile(plugin, file) {
+  var _a, _b;
+  return (_b = (_a = plugin.settings.tableLayouts) == null ? void 0 : _a[file.path]) != null ? _b : null;
+}
+
 // src/preview.ts
-var PreviewModal = class extends import_obsidian3.Modal {
+var PreviewModal = class extends import_obsidian4.Modal {
   constructor(app, plugin, file) {
     super(app);
     this.iframeEl = null;
@@ -1319,13 +1893,21 @@ var PreviewModal = class extends import_obsidian3.Modal {
     };
     const refreshBtn = toolbar.createEl("button", { text: "Refresh" });
     refreshBtn.onclick = () => void this.refresh();
+    const adjustBtn = toolbar.createEl("button", { text: "Adjust tables\u2026" });
+    adjustBtn.onclick = () => {
+      new TableAdjustModal(this.app, this.plugin, this.file, () => {
+        void this.refresh();
+      }).open();
+    };
     const saveBtn = toolbar.createEl("button", {
       text: "Save PDF",
       cls: "mod-cta"
     });
     saveBtn.onclick = async () => {
       const profile = getActiveProfile(this.plugin.settings);
-      await exportPdfToFile(this.app, this.file, profile);
+      await exportPdfToFile(this.app, this.file, profile, true, {
+        tableLayouts: layoutsForFile(this.plugin, this.file)
+      });
     };
     this.statusEl = toolbar.createDiv({ cls: "beautiful-pdf-status", text: "" });
     const wrap = contentEl.createDiv({ cls: "beautiful-pdf-frame-wrap" });
@@ -1335,19 +1917,24 @@ var PreviewModal = class extends import_obsidian3.Modal {
     void this.refresh();
   }
   async refresh() {
+    var _a;
     if (this.generating)
       return;
     this.generating = true;
     this.setStatus("Generating PDF\u2026");
     try {
       const profile = getActiveProfile(this.plugin.settings);
-      const { data } = await generatePdf(this.app, this.file, profile);
+      const layouts = layoutsForFile(this.plugin, this.file);
+      const { data } = await generatePdf(this.app, this.file, profile, {
+        tableLayouts: layouts
+      });
       this.showPdf(data);
-      this.setStatus(`Profile: ${profile.name}`);
+      const layoutNote = ((_a = layouts == null ? void 0 : layouts.tables) == null ? void 0 : _a.length) ? ` \xB7 ${layouts.tables.length} custom table(s)` : "";
+      this.setStatus(`Profile: ${profile.name}${layoutNote}`);
     } catch (err) {
       console.error(err);
       this.setStatus("Failed");
-      new import_obsidian3.Notice(`Preview failed: ${String(err)}`);
+      new import_obsidian4.Notice(`Preview failed: ${String(err)}`);
     } finally {
       this.generating = false;
     }
@@ -1371,7 +1958,7 @@ var PreviewModal = class extends import_obsidian3.Modal {
     this.contentEl.empty();
   }
 };
-var ProfileSuggestModal = class extends import_obsidian3.Modal {
+var ProfileSuggestModal = class extends import_obsidian4.Modal {
   constructor(app, plugin, file, onChoose) {
     super(app);
     this.plugin = plugin;
@@ -1383,24 +1970,21 @@ var ProfileSuggestModal = class extends import_obsidian3.Modal {
     contentEl.empty();
     contentEl.createEl("h2", { text: "Choose profile" });
     for (const profile of this.plugin.settings.profiles) {
-      new import_obsidian3.Setting(contentEl).setName(profile.name).addButton(
-        (btn) => btn.setButtonText("Select").setCta().onClick(() => {
+      new import_obsidian4.Setting(contentEl).setName(profile.name).addButton(
+        (btn) => btn.setButtonText("Export").onClick(() => {
           this.close();
           this.onChoose(profile);
         })
       );
     }
   }
-  onClose() {
-    this.contentEl.empty();
-  }
 };
 
 // src/settings.ts
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/fonts.ts
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 var FALLBACK_FONTS = [
   "Arial",
   "Calibri",
@@ -1622,7 +2206,7 @@ function clearFontCache() {
   cachedFamilies = null;
   loading = null;
 }
-var FontSuggestModal = class extends import_obsidian4.FuzzySuggestModal {
+var FontSuggestModal = class extends import_obsidian5.FuzzySuggestModal {
   constructor(app, fonts, onPick) {
     super(app);
     this.fonts = fonts;
@@ -1654,14 +2238,14 @@ async function openFontPicker(app, onPick) {
   clearFontCache();
   const fonts = await listSystemFontFamilies();
   if (fonts.length === 0) {
-    new import_obsidian4.Notice("Beautiful PDF: no fonts found on this system.");
+    new import_obsidian5.Notice("Beautiful PDF: no fonts found on this system.");
     return;
   }
   new FontSuggestModal(app, fonts, onPick).open();
 }
 
 // src/settings.ts
-var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
+var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.ui = {
@@ -1729,7 +2313,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
   /* ---------- Profiles ---------- */
   renderProfiles(containerEl) {
     const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-    new import_obsidian5.Setting(section).setName("Document profiles").setHeading();
+    new import_obsidian6.Setting(section).setName("Document profiles").setHeading();
     const chips = section.createDiv({ cls: "beautiful-pdf-profile-chips" });
     for (const p of this.plugin.settings.profiles) {
       const chip = chips.createEl("button", {
@@ -1786,7 +2370,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
     });
     section.createEl("hr", { cls: "beautiful-pdf-divider" });
     const profile = getActiveProfile(this.plugin.settings);
-    new import_obsidian5.Setting(section).setName("Profile name").addText(
+    new import_obsidian6.Setting(section).setName("Profile name").addText(
       (text) => text.setValue(profile.name).onChange((v) => {
         void (async () => {
           profile.name = v.trim() || profile.name;
@@ -1804,7 +2388,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
     const page = getActiveProfile(this.plugin.settings).page;
     page.lineHeight = toLineHeightPercent(page.lineHeight);
     const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-    new import_obsidian5.Setting(section).setName("Page").setHeading();
+    new import_obsidian6.Setting(section).setName("Page").setHeading();
     const sizeSummary = page.pageSize === "Custom" ? `Custom ${page.pageWidthMm}\xD7${page.pageHeightMm} mm` : page.pageSize;
     this.collapsible(
       section,
@@ -1815,7 +2399,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
         this.ui.pageSizeOpen = open;
       },
       (body) => {
-        new import_obsidian5.Setting(body).setName("Size").addDropdown((dd) => {
+        new import_obsidian6.Setting(body).setName("Size").addDropdown((dd) => {
           ["A4", "Letter", "Legal", "Custom"].forEach((s) => {
             dd.addOption(s, s);
           });
@@ -1875,7 +2459,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
         this.ui.pageNumberOpen = o;
       },
       (inner) => {
-        new import_obsidian5.Setting(inner).setName("Position").addDropdown((dd) => {
+        new import_obsidian6.Setting(inner).setName("Position").addDropdown((dd) => {
           const opts = {
             none: "None",
             "bottom-center": "Bottom center",
@@ -1893,7 +2477,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
             })();
           });
         });
-        new import_obsidian5.Setting(inner).setName("Format").addText(
+        new import_obsidian6.Setting(inner).setName("Format").addText(
           (t) => t.setPlaceholder("{page} / {pages}").setValue(page.pageNumberFormat).onChange((v) => {
             void (async () => {
               page.pageNumberFormat = v;
@@ -1916,7 +2500,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
         this.ui.headerFooterOpen = o;
       },
       (inner) => {
-        new import_obsidian5.Setting(inner).setName("Header text").addText(
+        new import_obsidian6.Setting(inner).setName("Header text").addText(
           (t) => t.setValue(page.headerText).onChange((v) => {
             void (async () => {
               page.headerText = v;
@@ -1924,7 +2508,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
             })();
           })
         );
-        new import_obsidian5.Setting(inner).setName("Header align").addDropdown((dd) => {
+        new import_obsidian6.Setting(inner).setName("Header align").addDropdown((dd) => {
           var _a2;
           this.addHfAlignOptions(dd);
           dd.setValue((_a2 = page.headerAlign) != null ? _a2 : "left").onChange((v) => {
@@ -1934,7 +2518,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
             })();
           });
         });
-        new import_obsidian5.Setting(inner).setName("Footer text").addText(
+        new import_obsidian6.Setting(inner).setName("Footer text").addText(
           (t) => t.setValue(page.footerText).onChange((v) => {
             void (async () => {
               page.footerText = v;
@@ -1942,7 +2526,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
             })();
           })
         );
-        new import_obsidian5.Setting(inner).setName("Footer align").addDropdown((dd) => {
+        new import_obsidian6.Setting(inner).setName("Footer align").addDropdown((dd) => {
           var _a2;
           this.addHfAlignOptions(dd);
           dd.setValue((_a2 = page.footerAlign) != null ? _a2 : "center").onChange((v) => {
@@ -1963,7 +2547,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
         this.ui.morePageOpen = o;
       },
       (inner) => {
-        new import_obsidian5.Setting(inner).setName("Use filename as title").addToggle(
+        new import_obsidian6.Setting(inner).setName("Use filename as title").addToggle(
           (tg) => tg.setValue(page.useFilenameAsTitle).onChange((v) => {
             void (async () => {
               page.useFilenameAsTitle = v;
@@ -1971,7 +2555,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
             })();
           })
         );
-        new import_obsidian5.Setting(inner).setName("Default line height (%)").addText(
+        new import_obsidian6.Setting(inner).setName("Default line height (%)").addText(
           (t) => t.setValue(String(page.lineHeight)).onChange((v) => {
             void (async () => {
               const n = parseFloat(v);
@@ -1982,7 +2566,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
             })();
           })
         );
-        new import_obsidian5.Setting(inner).setName("Print background").addToggle(
+        new import_obsidian6.Setting(inner).setName("Print background").addToggle(
           (tg) => tg.setValue(page.printBackground).onChange((v) => {
             void (async () => {
               page.printBackground = v;
@@ -2004,7 +2588,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
     const special = profile.special;
     const summary = special.styleOrderedListsAsHeadings ? `Ordered lists \u2192 H${special.orderedListHeadingLevel1}/H${special.orderedListHeadingLevel2}/H${special.orderedListHeadingLevel3}` : "Off";
     const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-    new import_obsidian5.Setting(section).setName("Extras").setHeading();
+    new import_obsidian6.Setting(section).setName("Extras").setHeading();
     this.collapsible(
       section,
       "Numbered lists as headings",
@@ -2018,7 +2602,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
         tip.appendText(
           "PDF-only. Write normal numbered lists (1. 2. 3.) in the note \u2014 Obsidian keeps auto-numbering. In the PDF those items use a heading style; # headings and body text stay as usual."
         );
-        new import_obsidian5.Setting(body).setName("Enable").setDesc("Apply heading look to ordered-list items in the PDF only").addToggle(
+        new import_obsidian6.Setting(body).setName("Enable").setDesc("Apply heading look to ordered-list items in the PDF only").addToggle(
           (tg) => tg.setValue(special.styleOrderedListsAsHeadings).onChange((v) => {
             void (async () => {
               special.styleOrderedListsAsHeadings = v;
@@ -2030,7 +2614,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
         if (!special.styleOrderedListsAsHeadings)
           return;
         const addLevel = (name, key) => {
-          new import_obsidian5.Setting(body).setName(name).addDropdown((dd) => {
+          new import_obsidian6.Setting(body).setName(name).addDropdown((dd) => {
             for (let i = 1; i <= 6; i++)
               dd.addOption(String(i), `H${i} style`);
             dd.setValue(String(special[key])).onChange((v) => {
@@ -2052,7 +2636,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
   renderElementsSection(containerEl) {
     var _a;
     const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-    new import_obsidian5.Setting(section).setName("Markdown elements").setHeading();
+    new import_obsidian6.Setting(section).setName("Markdown elements").setHeading();
     const elements = getActiveProfile(this.plugin.settings).elements;
     for (const group of ELEMENT_GROUPS) {
       const open = (_a = this.ui.groupOpen[group.id]) != null ? _a : false;
@@ -2098,7 +2682,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
     const editors = row.createDiv({ cls: "beautiful-pdf-el-editors" });
     const refreshPreview = () => this.paintPreview(preview, key, style);
     if (ELEMENTS_WITH_FRAME.includes(key)) {
-      new import_obsidian5.Setting(editors).setName("Box style").addDropdown((dd) => {
+      new import_obsidian6.Setting(editors).setName("Box style").addDropdown((dd) => {
         var _a2;
         for (const opt of FRAME_PRESET_OPTIONS) {
           dd.addOption(opt.id, opt.label);
@@ -2112,7 +2696,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
         });
       });
     }
-    const fontSetting = new import_obsidian5.Setting(editors).setName("Font");
+    const fontSetting = new import_obsidian6.Setting(editors).setName("Font");
     let fontText = null;
     fontSetting.addText((t) => {
       fontText = t;
@@ -2134,7 +2718,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
         });
       })
     );
-    new import_obsidian5.Setting(editors).setName("Size (pt)").addText(
+    new import_obsidian6.Setting(editors).setName("Size (pt)").addText(
       (t) => t.setValue(String(style.fontSize)).onChange((v) => {
         void (async () => {
           const n = parseFloat(v);
@@ -2146,7 +2730,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
         })();
       })
     );
-    new import_obsidian5.Setting(editors).setName("Weight").addDropdown((dd) => {
+    new import_obsidian6.Setting(editors).setName("Weight").addDropdown((dd) => {
       ["normal", "bold", "300", "500", "600", "700"].forEach(
         (w) => {
           dd.addOption(w, w);
@@ -2160,7 +2744,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
         })();
       });
     });
-    new import_obsidian5.Setting(editors).setName("Align").addDropdown((dd) => {
+    new import_obsidian6.Setting(editors).setName("Align").addDropdown((dd) => {
       ["left", "center", "right", "justify"].forEach((a) => {
         dd.addOption(a, a);
       });
@@ -2189,7 +2773,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
         }
       );
     }
-    new import_obsidian5.Setting(editors).setName("Margin top (pt)").addText(
+    new import_obsidian6.Setting(editors).setName("Margin top (pt)").addText(
       (t) => t.setValue(String(style.marginTop)).onChange((v) => {
         void (async () => {
           const n = parseFloat(v);
@@ -2201,7 +2785,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
         })();
       })
     );
-    new import_obsidian5.Setting(editors).setName("Margin bottom (pt)").addText(
+    new import_obsidian6.Setting(editors).setName("Margin bottom (pt)").addText(
       (t) => t.setValue(String(style.marginBottom)).onChange((v) => {
         void (async () => {
           const n = parseFloat(v);
@@ -2214,7 +2798,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
       })
     );
     if (style.lineHeight != null) {
-      new import_obsidian5.Setting(editors).setName("Line height (%)").addText(
+      new import_obsidian6.Setting(editors).setName("Line height (%)").addText(
         (t) => t.setValue(String(style.lineHeight)).onChange((v) => {
           void (async () => {
             const n = parseFloat(v);
@@ -2230,7 +2814,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
   }
   addColorSetting(parent, name, value, onChange) {
     var _a;
-    const setting = new import_obsidian5.Setting(parent).setName(name);
+    const setting = new import_obsidian6.Setting(parent).setName(name);
     let textComp = null;
     const initial = (_a = normalizeHex(value)) != null ? _a : "#1a1a1a";
     setting.addText((t) => {
@@ -2331,7 +2915,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian5.PluginSettingTab {
     }
   }
   numSetting(containerEl, name, value, onChange) {
-    new import_obsidian5.Setting(containerEl).setName(name).addText(
+    new import_obsidian6.Setting(containerEl).setName(name).addText(
       (t) => t.setValue(String(value)).onChange((v) => {
         void (async () => {
           const n = parseFloat(v);
@@ -2358,7 +2942,7 @@ function normalizeHex(value) {
 }
 
 // src/main.ts
-var BeautifulPdfPlugin = class extends import_obsidian6.Plugin {
+var BeautifulPdfPlugin = class extends import_obsidian7.Plugin {
   async onload() {
     await this.loadSettings();
     this.addSettingTab(new BeautifulPdfSettingTab(this.app, this));
@@ -2378,6 +2962,21 @@ var BeautifulPdfPlugin = class extends import_obsidian6.Plugin {
       }
     });
     this.addCommand({
+      id: "adjust-tables",
+      name: "Adjust tables for PDF\u2026",
+      checkCallback: (checking) => {
+        const file = this.getActiveMarkdownFile();
+        if (!file)
+          return false;
+        if (!checking) {
+          new TableAdjustModal(this.app, this, file, () => {
+            void this.openPreview(file);
+          }).open();
+        }
+        return true;
+      }
+    });
+    this.addCommand({
       id: "export",
       name: "Export current note to PDF",
       checkCallback: (checking) => {
@@ -2386,7 +2985,9 @@ var BeautifulPdfPlugin = class extends import_obsidian6.Plugin {
           return false;
         if (!checking) {
           const profile = getActiveProfile(this.settings);
-          void exportPdfToFile(this.app, file, profile);
+          void exportPdfToFile(this.app, file, profile, true, {
+            tableLayouts: layoutsForFile(this, file)
+          });
         }
         return true;
       }
@@ -2400,7 +3001,9 @@ var BeautifulPdfPlugin = class extends import_obsidian6.Plugin {
           return false;
         if (!checking) {
           new ProfileSuggestModal(this.app, this, file, (profile) => {
-            void exportPdfToFile(this.app, file, profile);
+            void exportPdfToFile(this.app, file, profile, true, {
+              tableLayouts: layoutsForFile(this, file)
+            });
           }).open();
         }
         return true;
@@ -2420,17 +3023,26 @@ ${PAGE_BREAK_SNIPPET}` : PAGE_BREAK_SNIPPET;
     });
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
-        if (!(file instanceof import_obsidian6.TFile) || file.extension !== "md")
+        if (!(file instanceof import_obsidian7.TFile) || file.extension !== "md")
           return;
         menu.addItem((item) => {
           item.setTitle("Beautiful PDF: Export").setIcon("file-text").onClick(() => {
             const profile = getActiveProfile(this.settings);
-            void exportPdfToFile(this.app, file, profile);
+            void exportPdfToFile(this.app, file, profile, true, {
+              tableLayouts: layoutsForFile(this, file)
+            });
           });
         });
         menu.addItem((item) => {
           item.setTitle("Beautiful PDF: Preview").setIcon("eye").onClick(() => {
             void this.openPreview(file);
+          });
+        });
+        menu.addItem((item) => {
+          item.setTitle("Beautiful PDF: Adjust tables\u2026").setIcon("table").onClick(() => {
+            new TableAdjustModal(this.app, this, file, () => {
+              void this.openPreview(file);
+            }).open();
           });
         });
       })
@@ -2439,18 +3051,18 @@ ${PAGE_BREAK_SNIPPET}` : PAGE_BREAK_SNIPPET;
   async openPreview(file) {
     const target = file != null ? file : this.getActiveMarkdownFile();
     if (!target) {
-      new import_obsidian6.Notice("Open a Markdown note first.");
+      new import_obsidian7.Notice("Open a Markdown note first.");
       return;
     }
     new PreviewModal(this.app, this, target).open();
   }
   getActiveMarkdownFile() {
     var _a;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
     return (_a = view == null ? void 0 : view.file) != null ? _a : null;
   }
   async loadSettings() {
-    var _a, _b;
+    var _a, _b, _c;
     const defaults = createDefaultSettings();
     const data = await this.loadData();
     if (!data || !Array.isArray(data.profiles) || data.profiles.length === 0) {
@@ -2469,7 +3081,8 @@ ${PAGE_BREAK_SNIPPET}` : PAGE_BREAK_SNIPPET;
     this.settings = {
       settingsVersion: SETTINGS_VERSION,
       activeProfileId: (_b = data.activeProfileId) != null ? _b : defaults.activeProfileId,
-      profiles: profiles.map((p) => mergeProfile(p, fallbackElements))
+      profiles: profiles.map((p) => mergeProfile(p, fallbackElements)),
+      tableLayouts: (_c = data.tableLayouts) != null ? _c : {}
     };
     if (!this.settings.profiles.some((p) => p.id === this.settings.activeProfileId)) {
       this.settings.activeProfileId = this.settings.profiles[0].id;

@@ -17,6 +17,7 @@ Export Obsidian Markdown notes to styled PDFs. Map headings, body text, tables, 
 
 - **System fonts** — Choose fonts installed on your computer from Settings (Font → Choose…). Local fonts (including Korean typefaces) can be used directly in the PDF.
 - **Numbered lists as headings** — Under Extras, style normal numbered lists (`1. 2. 3.`) like headings in the PDF only. Obsidian keeps auto-numbering in the note; `#` headings and body text stay unchanged. Map top / nested / deeper levels to H1–H6 styles.
+- **Tables** — Smarter default wrapping (`keep-all`) and optional **Adjust tables…** step in preview to drag column widths and equalize selected cells before PDF export.
 
 ## Commands
 

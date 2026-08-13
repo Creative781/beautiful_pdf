@@ -2,6 +2,7 @@ import { App, Modal, Notice, Setting, TFile } from "obsidian";
 import { exportPdfToFile, generatePdf } from "./export";
 import type BeautifulPdfPlugin from "./main";
 import { getActiveProfile } from "./profiles";
+import { layoutsForFile, TableAdjustModal } from "./table-editor";
 import type { Profile } from "./types";
 
 export class PreviewModal extends Modal {
@@ -41,13 +42,22 @@ export class PreviewModal extends Modal {
 		const refreshBtn = toolbar.createEl("button", { text: "Refresh" });
 		refreshBtn.onclick = () => void this.refresh();
 
+		const adjustBtn = toolbar.createEl("button", { text: "Adjust tables…" });
+		adjustBtn.onclick = () => {
+			new TableAdjustModal(this.app, this.plugin, this.file, () => {
+				void this.refresh();
+			}).open();
+		};
+
 		const saveBtn = toolbar.createEl("button", {
 			text: "Save PDF",
 			cls: "mod-cta",
 		});
 		saveBtn.onclick = async () => {
 			const profile = getActiveProfile(this.plugin.settings);
-			await exportPdfToFile(this.app, this.file, profile);
+			await exportPdfToFile(this.app, this.file, profile, true, {
+				tableLayouts: layoutsForFile(this.plugin, this.file),
+			});
 		};
 
 		this.statusEl = toolbar.createDiv({ cls: "beautiful-pdf-status", text: "" });
@@ -66,9 +76,15 @@ export class PreviewModal extends Modal {
 		this.setStatus("Generating PDF…");
 		try {
 			const profile = getActiveProfile(this.plugin.settings);
-			const { data } = await generatePdf(this.app, this.file, profile);
+			const layouts = layoutsForFile(this.plugin, this.file);
+			const { data } = await generatePdf(this.app, this.file, profile, {
+				tableLayouts: layouts,
+			});
 			this.showPdf(data);
-			this.setStatus(`Profile: ${profile.name}`);
+			const layoutNote = layouts?.tables?.length
+				? ` · ${layouts.tables.length} custom table(s)`
+				: "";
+			this.setStatus(`Profile: ${profile.name}${layoutNote}`);
 		} catch (err) {
 			console.error(err);
 			this.setStatus("Failed");
@@ -118,20 +134,14 @@ export class ProfileSuggestModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.createEl("h2", { text: "Choose profile" });
+
 		for (const profile of this.plugin.settings.profiles) {
 			new Setting(contentEl).setName(profile.name).addButton((btn) =>
-				btn
-					.setButtonText("Select")
-					.setCta()
-					.onClick(() => {
-						this.close();
-						this.onChoose(profile);
-					}),
+				btn.setButtonText("Export").onClick(() => {
+					this.close();
+					this.onChoose(profile);
+				}),
 			);
 		}
-	}
-
-	onClose(): void {
-		this.contentEl.empty();
 	}
 }

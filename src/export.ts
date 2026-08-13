@@ -1,6 +1,7 @@
 import { Notice, type App, type TFile } from "obsidian";
 import { headerFooterTemplates } from "./css";
 import { renderNoteHtml } from "./render";
+import type { NoteTableLayouts } from "./table-layout";
 import type { Profile } from "./types";
 
 /** Minimal typing for Electron <webview> used by Obsidian desktop. */
@@ -65,13 +66,20 @@ export interface PdfResult {
 	title: string;
 }
 
+export interface GeneratePdfOptions {
+	tableLayouts?: NoteTableLayouts | null;
+}
+
 /** Render note and produce PDF bytes (same path for preview + export). */
 export async function generatePdf(
 	app: App,
 	file: TFile,
 	profile: Profile,
+	options: GeneratePdfOptions = {},
 ): Promise<PdfResult> {
-	const rendered = await renderNoteHtml(app, file, profile);
+	const rendered = await renderNoteHtml(app, file, profile, {
+		tableLayouts: options.tableLayouts,
+	});
 	const data = await printHtmlToPdf(rendered, profile);
 	return { data, title: rendered.title };
 }
@@ -81,10 +89,11 @@ export async function exportPdfToFile(
 	file: TFile,
 	profile: Profile,
 	openAfter = true,
+	options: GeneratePdfOptions = {},
 ): Promise<string | null> {
 	const notice = new Notice("Beautiful PDF: generating…", 0);
 	try {
-		const { data, title } = await generatePdf(app, file, profile);
+		const { data, title } = await generatePdf(app, file, profile, options);
 		const { remote, fs } = getElectron();
 		const result = await remote.dialog.showSaveDialog({
 			title: "Export Beautiful PDF",

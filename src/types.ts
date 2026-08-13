@@ -1,3 +1,7 @@
+import type { NoteTableLayouts } from "./table-layout";
+
+export type { NoteTableLayouts, TableLayout } from "./table-layout";
+
 export type TextAlign = "left" | "center" | "right" | "justify";
 export type HfAlign = "left" | "center" | "right";
 export type FontWeight = "normal" | "bold" | "300" | "500" | "600" | "700";
@@ -125,8 +129,12 @@ export interface BeautifulPdfSettings {
 	settingsVersion?: number;
 	activeProfileId: string;
 	profiles: Profile[];
+	/**
+	 * Optional per-note table column/row layouts from the Adjust tables step.
+	 * Keyed by vault-relative file path.
+	 */
+	tableLayouts?: Record<string, NoteTableLayouts>;
 }
-
 export const ELEMENT_LABELS: Record<ElementKey, string> = {
 	h1: "Heading # (H1)",
 	h2: "Heading ## (H2)",

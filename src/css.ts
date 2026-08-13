@@ -148,7 +148,9 @@ pre > button,
 
 	parts.push(`
 table {
-  width: 100%;
+  width: auto;
+  max-width: 100%;
+  table-layout: auto;
   border-collapse: collapse;
   margin-top: ${e.table.marginTop}pt;
   margin-bottom: ${e.table.marginBottom}pt;
@@ -158,11 +160,20 @@ table {
   line-height: ${lineHeightCss(e.table.lineHeight, 140)};
   break-inside: auto;
 }
+/* User-adjusted column widths from the table layout step */
+table.bpf-table-sized {
+  width: 100%;
+  table-layout: fixed;
+}
 th, td {
   border: 1px solid #bbb;
   padding: 5pt 7pt;
   text-align: left;
   vertical-align: top;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+  line-break: strict;
 }
 th {
   font-family: ${e.tableHeader.fontFamily};

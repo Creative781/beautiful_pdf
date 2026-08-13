@@ -381,6 +381,7 @@ export function createDefaultSettings(): BeautifulPdfSettings {
 		settingsVersion: 3,
 		activeProfileId: profiles[0].id,
 		profiles,
+		tableLayouts: {},
 	};
 }
 

@@ -3,6 +3,7 @@ import { exportPdfToFile } from "./export";
 import { PreviewModal, ProfileSuggestModal } from "./preview";
 import { createDefaultSettings, createSampleProfiles, getActiveProfile } from "./profiles";
 import { BeautifulPdfSettingTab } from "./settings";
+import { layoutsForFile, TableAdjustModal } from "./table-editor";
 import type { BeautifulPdfSettings, ElementStyles, Profile } from "./types";
 import { createDefaultSpecialOptions, ELEMENT_KEYS, SETTINGS_VERSION } from "./types";
 import { PAGE_BREAK_SNIPPET, toLineHeightPercent } from "./util";
@@ -31,6 +32,21 @@ export default class BeautifulPdfPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "adjust-tables",
+			name: "Adjust tables for PDF…",
+			checkCallback: (checking) => {
+				const file = this.getActiveMarkdownFile();
+				if (!file) return false;
+				if (!checking) {
+					new TableAdjustModal(this.app, this, file, () => {
+						void this.openPreview(file);
+					}).open();
+				}
+				return true;
+			},
+		});
+
+		this.addCommand({
 			id: "export",
 			name: "Export current note to PDF",
 			checkCallback: (checking) => {
@@ -38,7 +54,9 @@ export default class BeautifulPdfPlugin extends Plugin {
 				if (!file) return false;
 				if (!checking) {
 					const profile = getActiveProfile(this.settings);
-					void exportPdfToFile(this.app, file, profile);
+					void exportPdfToFile(this.app, file, profile, true, {
+						tableLayouts: layoutsForFile(this, file),
+					});
 				}
 				return true;
 			},
@@ -52,7 +70,9 @@ export default class BeautifulPdfPlugin extends Plugin {
 				if (!file) return false;
 				if (!checking) {
 					new ProfileSuggestModal(this.app, this, file, (profile) => {
-						void exportPdfToFile(this.app, file, profile);
+						void exportPdfToFile(this.app, file, profile, true, {
+							tableLayouts: layoutsForFile(this, file),
+						});
 					}).open();
 				}
 				return true;
@@ -82,7 +102,9 @@ export default class BeautifulPdfPlugin extends Plugin {
 						.setIcon("file-text")
 						.onClick(() => {
 							const profile = getActiveProfile(this.settings);
-							void exportPdfToFile(this.app, file, profile);
+							void exportPdfToFile(this.app, file, profile, true, {
+								tableLayouts: layoutsForFile(this, file),
+							});
 						});
 				});
 				menu.addItem((item) => {
@@ -91,6 +113,16 @@ export default class BeautifulPdfPlugin extends Plugin {
 						.setIcon("eye")
 						.onClick(() => {
 							void this.openPreview(file);
+						});
+				});
+				menu.addItem((item) => {
+					item
+						.setTitle("Beautiful PDF: Adjust tables…")
+						.setIcon("table")
+						.onClick(() => {
+							new TableAdjustModal(this.app, this, file, () => {
+								void this.openPreview(file);
+							}).open();
 						});
 				});
 			}),
@@ -133,6 +165,7 @@ export default class BeautifulPdfPlugin extends Plugin {
 			settingsVersion: SETTINGS_VERSION,
 			activeProfileId: data.activeProfileId ?? defaults.activeProfileId,
 			profiles: profiles.map((p) => mergeProfile(p, fallbackElements)),
+			tableLayouts: data.tableLayouts ?? {},
 		};
 		if (!this.settings.profiles.some((p) => p.id === this.settings.activeProfileId)) {
 			this.settings.activeProfileId = this.settings.profiles[0].id;
