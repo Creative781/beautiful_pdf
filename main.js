@@ -1558,7 +1558,7 @@ function createBlankProfile(name) {
 
 // src/table-editor.ts
 var import_obsidian3 = require("obsidian");
-var TableAdjustModal = class extends import_obsidian3.Modal {
+var _TableAdjustModal = class extends import_obsidian3.Modal {
   constructor(app, plugin, file, onApplied) {
     super(app);
     this.frameEl = null;
@@ -1648,14 +1648,10 @@ html, body {
 }
 .bpf-table-wrap {
   position: relative;
-  display: block;
-  width: fit-content;
+  display: inline-block;
   max-width: 100%;
-  margin: 0 0 8px;
-  /* Keep edge handles inside the wrap so they stay clickable */
-  padding-right: 12px;
-  padding-bottom: 12px;
-  box-sizing: content-box;
+  margin: 0 10px 10px 0;
+  vertical-align: top;
   overflow: visible;
 }
 table {
@@ -1668,38 +1664,29 @@ td.bpf-cell-selected, th.bpf-cell-selected {
   outline-offset: -2px;
   background: rgba(37, 99, 235, 0.08) !important;
 }
-.bpf-col-handle {
-  position: absolute;
-  top: 0;
-  width: 8px;
-  margin-left: -4px;
-  cursor: col-resize;
-  z-index: 5;
-  background: transparent;
-}
-.bpf-col-handle:hover, .bpf-col-handle.is-dragging {
-  background: rgba(37, 99, 235, 0.35);
-}
-.bpf-edge-handle-right {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 12px;
-  cursor: ew-resize;
-  z-index: 8;
-  background: transparent;
-}
+/* All handles: position only via inline left/top/width/height (no right/bottom). */
+.bpf-col-handle,
+.bpf-edge-handle-right,
 .bpf-edge-handle-bottom {
   position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 12px;
-  cursor: ns-resize;
-  z-index: 8;
+  z-index: 30;
+  box-sizing: border-box;
   background: transparent;
+  pointer-events: auto;
 }
+.bpf-col-handle {
+  cursor: col-resize;
+}
+.bpf-edge-handle-right {
+  cursor: ew-resize;
+}
+.bpf-edge-handle-bottom {
+  cursor: ns-resize;
+}
+.bpf-col-handle:hover,
 .bpf-edge-handle-right:hover,
 .bpf-edge-handle-bottom:hover,
+.bpf-col-handle.is-dragging,
 .bpf-edge-handle-right.is-dragging,
 .bpf-edge-handle-bottom.is-dragging {
   background: rgba(37, 99, 235, 0.45);
@@ -1902,58 +1889,73 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       ".bpf-col-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom"
     ).forEach((h) => h.remove());
   }
-  repositionColHandles(table) {
+  /**
+   * Place a handle by table geometry relative to wrap.
+   * Uses left/top only — never CSS right/bottom (those missed the border).
+   */
+  syncHandlePositions(table) {
     var _a;
-    const wrap = ((_a = table.parentElement) == null ? void 0 : _a.classList.contains("bpf-table-wrap")) ? table.parentElement : table;
-    const wrapLeft = wrap.getBoundingClientRect().left;
-    const tableTop = table.getBoundingClientRect().top;
-    const wrapTop = wrap.getBoundingClientRect().top;
-    const tableH = table.getBoundingClientRect().height;
-    wrap.querySelectorAll(".bpf-col-handle").forEach((h) => {
+    const wrap = ((_a = table.parentElement) == null ? void 0 : _a.classList.contains("bpf-table-wrap")) ? table.parentElement : null;
+    if (!wrap)
+      return;
+    const wr = wrap.getBoundingClientRect();
+    const tr = table.getBoundingClientRect();
+    const left = tr.left - wr.left;
+    const top = tr.top - wr.top;
+    const w = tr.width;
+    const h = tr.height;
+    const edge = _TableAdjustModal.EDGE;
+    wrap.querySelectorAll(".bpf-col-handle").forEach((node) => {
       var _a2;
-      const col = Number(h.dataset.col);
-      const c = (_a2 = table.rows[0]) == null ? void 0 : _a2.cells[col];
-      if (!c)
+      const el2 = node;
+      const col = Number(el2.dataset.col);
+      const cell = (_a2 = table.rows[0]) == null ? void 0 : _a2.cells[col];
+      if (!cell)
         return;
-      const el2 = h;
-      el2.style.left = `${c.getBoundingClientRect().right - wrapLeft}px`;
-      el2.style.top = `${tableTop - wrapTop}px`;
-      el2.style.height = `${tableH}px`;
+      const cr = cell.getBoundingClientRect();
+      const borderX = cr.right - wr.left;
+      el2.style.left = `${borderX - edge / 2}px`;
+      el2.style.top = `${top}px`;
+      el2.style.width = `${edge}px`;
+      el2.style.height = `${h}px`;
+      el2.style.right = "auto";
+      el2.style.bottom = "auto";
     });
-    const right = wrap.querySelector(".bpf-edge-handle-right");
+    const right = wrap.querySelector(
+      ".bpf-edge-handle-right"
+    );
     if (right) {
-      right.style.top = `${tableTop - wrapTop}px`;
-      right.style.height = `${tableH}px`;
+      right.style.left = `${left + w - edge / 2}px`;
+      right.style.top = `${top}px`;
+      right.style.width = `${edge}px`;
+      right.style.height = `${h}px`;
+      right.style.right = "auto";
+      right.style.bottom = "auto";
     }
     const bottom = wrap.querySelector(
       ".bpf-edge-handle-bottom"
     );
     if (bottom) {
-      bottom.style.width = `${table.getBoundingClientRect().width}px`;
+      bottom.style.left = `${left}px`;
+      bottom.style.top = `${top + h - edge / 2}px`;
+      bottom.style.width = `${w}px`;
+      bottom.style.height = `${edge}px`;
+      bottom.style.right = "auto";
+      bottom.style.bottom = "auto";
     }
   }
   installResizeHandles(table, tableIndex) {
-    var _a;
     const doc = this.doc();
     if (!doc)
       return;
     const wrap = this.ensureWrap(table);
     this.clearHandles(table);
     const n = tableColumnCount(table);
-    const wrapLeft = wrap.getBoundingClientRect().left;
-    const wrapTop = wrap.getBoundingClientRect().top;
-    const tableRect = table.getBoundingClientRect();
     for (let i = 0; i < n - 1; i++) {
-      const cell = (_a = table.rows[0]) == null ? void 0 : _a.cells[i];
-      if (!cell)
-        continue;
-      const cr = cell.getBoundingClientRect();
       const handle = doc.createElement("div");
       handle.className = "bpf-col-handle";
-      handle.style.left = `${cr.right - wrapLeft}px`;
-      handle.style.top = `${tableRect.top - wrapTop}px`;
-      handle.style.height = `${tableRect.height}px`;
       handle.dataset.col = String(i);
+      handle.title = "Drag to resize columns";
       wrap.appendChild(handle);
       const onDown = (ev) => {
         ev.preventDefault();
@@ -1987,7 +1989,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
           next[left] = a;
           next[right] = b;
           applyColWidthsPct(table, normalizePercents(next));
-          this.repositionColHandles(table);
+          this.syncHandlePositions(table);
         };
         const onUp = () => {
           handle.classList.remove("is-dragging");
@@ -2005,8 +2007,6 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     const rightEdge = doc.createElement("div");
     rightEdge.className = "bpf-edge-handle-right";
     rightEdge.title = "Drag to resize table width";
-    rightEdge.style.top = `${tableRect.top - wrapTop}px`;
-    rightEdge.style.height = `${tableRect.height}px`;
     wrap.appendChild(rightEdge);
     {
       const onDown = (ev) => {
@@ -2029,7 +2029,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
             Math.max(80, startW + (mv.clientX - startX))
           );
           setTablePixelWidth(table, newW);
-          this.repositionColHandles(table);
+          this.syncHandlePositions(table);
         };
         const onUp = () => {
           rightEdge.classList.remove("is-dragging");
@@ -2051,7 +2051,6 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     const bottomEdge = doc.createElement("div");
     bottomEdge.className = "bpf-edge-handle-bottom";
     bottomEdge.title = "Drag to resize table height";
-    bottomEdge.style.width = `${tableRect.width}px`;
     wrap.appendChild(bottomEdge);
     {
       const onDown = (ev) => {
@@ -2078,7 +2077,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
               continue;
             row.style.height = `${Math.max(16, Math.round(startRowHeights[ri] * scale))}px`;
           }
-          this.repositionColHandles(table);
+          this.syncHandlePositions(table);
         };
         const onUp = () => {
           bottomEdge.classList.remove("is-dragging");
@@ -2099,6 +2098,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
         () => bottomEdge.removeEventListener("mousedown", onDown)
       );
     }
+    this.syncHandlePositions(table);
   }
   selectedInActiveTable() {
     const root = this.root();
@@ -2228,6 +2228,9 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     );
   }
 };
+var TableAdjustModal = _TableAdjustModal;
+/** Hit-target thickness; handles are centered on the border line. */
+TableAdjustModal.EDGE = 10;
 function layoutParentWidth(table) {
   var _a;
   const parent = (_a = table.closest(".markdown-preview-view")) != null ? _a : table.parentElement;

@@ -145,14 +145,10 @@ html, body {
 }
 .bpf-table-wrap {
   position: relative;
-  display: block;
-  width: fit-content;
+  display: inline-block;
   max-width: 100%;
-  margin: 0 0 8px;
-  /* Keep edge handles inside the wrap so they stay clickable */
-  padding-right: 12px;
-  padding-bottom: 12px;
-  box-sizing: content-box;
+  margin: 0 10px 10px 0;
+  vertical-align: top;
   overflow: visible;
 }
 table {
@@ -165,38 +161,29 @@ td.bpf-cell-selected, th.bpf-cell-selected {
   outline-offset: -2px;
   background: rgba(37, 99, 235, 0.08) !important;
 }
-.bpf-col-handle {
-  position: absolute;
-  top: 0;
-  width: 8px;
-  margin-left: -4px;
-  cursor: col-resize;
-  z-index: 5;
-  background: transparent;
-}
-.bpf-col-handle:hover, .bpf-col-handle.is-dragging {
-  background: rgba(37, 99, 235, 0.35);
-}
-.bpf-edge-handle-right {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 12px;
-  cursor: ew-resize;
-  z-index: 8;
-  background: transparent;
-}
+/* All handles: position only via inline left/top/width/height (no right/bottom). */
+.bpf-col-handle,
+.bpf-edge-handle-right,
 .bpf-edge-handle-bottom {
   position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 12px;
-  cursor: ns-resize;
-  z-index: 8;
+  z-index: 30;
+  box-sizing: border-box;
   background: transparent;
+  pointer-events: auto;
 }
+.bpf-col-handle {
+  cursor: col-resize;
+}
+.bpf-edge-handle-right {
+  cursor: ew-resize;
+}
+.bpf-edge-handle-bottom {
+  cursor: ns-resize;
+}
+.bpf-col-handle:hover,
 .bpf-edge-handle-right:hover,
 .bpf-edge-handle-bottom:hover,
+.bpf-col-handle.is-dragging,
 .bpf-edge-handle-right.is-dragging,
 .bpf-edge-handle-bottom.is-dragging {
   background: rgba(37, 99, 235, 0.45);
@@ -406,33 +393,63 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			.forEach((h) => h.remove());
 	}
 
-	private repositionColHandles(table: HTMLTableElement): void {
+	/** Hit-target thickness; handles are centered on the border line. */
+	private static readonly EDGE = 10;
+
+	/**
+	 * Place a handle by table geometry relative to wrap.
+	 * Uses left/top only — never CSS right/bottom (those missed the border).
+	 */
+	private syncHandlePositions(table: HTMLTableElement): void {
 		const wrap = table.parentElement?.classList.contains("bpf-table-wrap")
 			? table.parentElement
-			: table;
-		const wrapLeft = wrap.getBoundingClientRect().left;
-		const tableTop = table.getBoundingClientRect().top;
-		const wrapTop = wrap.getBoundingClientRect().top;
-		const tableH = table.getBoundingClientRect().height;
-		wrap.querySelectorAll(".bpf-col-handle").forEach((h) => {
-			const col = Number((h as HTMLElement).dataset.col);
-			const c = table.rows[0]?.cells[col];
-			if (!c) return;
-			const el = h as HTMLElement;
-			el.style.left = `${c.getBoundingClientRect().right - wrapLeft}px`;
-			el.style.top = `${tableTop - wrapTop}px`;
-			el.style.height = `${tableH}px`;
+			: null;
+		if (!wrap) return;
+		const wr = wrap.getBoundingClientRect();
+		const tr = table.getBoundingClientRect();
+		const left = tr.left - wr.left;
+		const top = tr.top - wr.top;
+		const w = tr.width;
+		const h = tr.height;
+		const edge = TableAdjustModal.EDGE;
+
+		wrap.querySelectorAll(".bpf-col-handle").forEach((node) => {
+			const el = node as HTMLElement;
+			const col = Number(el.dataset.col);
+			const cell = table.rows[0]?.cells[col];
+			if (!cell) return;
+			const cr = cell.getBoundingClientRect();
+			const borderX = cr.right - wr.left;
+			el.style.left = `${borderX - edge / 2}px`;
+			el.style.top = `${top}px`;
+			el.style.width = `${edge}px`;
+			el.style.height = `${h}px`;
+			el.style.right = "auto";
+			el.style.bottom = "auto";
 		});
-		const right = wrap.querySelector(".bpf-edge-handle-right") as HTMLElement | null;
+
+		const right = wrap.querySelector(
+			".bpf-edge-handle-right",
+		) as HTMLElement | null;
 		if (right) {
-			right.style.top = `${tableTop - wrapTop}px`;
-			right.style.height = `${tableH}px`;
+			right.style.left = `${left + w - edge / 2}px`;
+			right.style.top = `${top}px`;
+			right.style.width = `${edge}px`;
+			right.style.height = `${h}px`;
+			right.style.right = "auto";
+			right.style.bottom = "auto";
 		}
+
 		const bottom = wrap.querySelector(
 			".bpf-edge-handle-bottom",
 		) as HTMLElement | null;
 		if (bottom) {
-			bottom.style.width = `${table.getBoundingClientRect().width}px`;
+			bottom.style.left = `${left}px`;
+			bottom.style.top = `${top + h - edge / 2}px`;
+			bottom.style.width = `${w}px`;
+			bottom.style.height = `${edge}px`;
+			bottom.style.right = "auto";
+			bottom.style.bottom = "auto";
 		}
 	}
 
@@ -443,21 +460,13 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		const wrap = this.ensureWrap(table);
 		this.clearHandles(table);
 		const n = tableColumnCount(table);
-		const wrapLeft = wrap.getBoundingClientRect().left;
-		const wrapTop = wrap.getBoundingClientRect().top;
-		const tableRect = table.getBoundingClientRect();
 
 		// Inner borders: redistribute adjacent columns; keep overall width
 		for (let i = 0; i < n - 1; i++) {
-			const cell = table.rows[0]?.cells[i];
-			if (!cell) continue;
-			const cr = cell.getBoundingClientRect();
 			const handle = doc.createElement("div");
 			handle.className = "bpf-col-handle";
-			handle.style.left = `${cr.right - wrapLeft}px`;
-			handle.style.top = `${tableRect.top - wrapTop}px`;
-			handle.style.height = `${tableRect.height}px`;
 			handle.dataset.col = String(i);
+			handle.title = "Drag to resize columns";
 			wrap.appendChild(handle);
 
 			const onDown = (ev: MouseEvent) => {
@@ -493,7 +502,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 					next[left] = a;
 					next[right] = b;
 					applyColWidthsPct(table, normalizePercents(next));
-					this.repositionColHandles(table);
+					this.syncHandlePositions(table);
 				};
 
 				const onUp = () => {
@@ -512,12 +521,10 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			this.detachFns.push(() => handle.removeEventListener("mousedown", onDown));
 		}
 
-		// Right edge: overall table width
+		// Right edge: overall table width (centered on the right border line)
 		const rightEdge = doc.createElement("div");
 		rightEdge.className = "bpf-edge-handle-right";
 		rightEdge.title = "Drag to resize table width";
-		rightEdge.style.top = `${tableRect.top - wrapTop}px`;
-		rightEdge.style.height = `${tableRect.height}px`;
 		wrap.appendChild(rightEdge);
 		{
 			const onDown = (ev: MouseEvent) => {
@@ -532,8 +539,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 				markTableTouched(table);
 				const startW = table.getBoundingClientRect().width;
 				const startX = ev.clientX;
-				const parentW =
-					layoutParentWidth(table) || startW * 2;
+				const parentW = layoutParentWidth(table) || startW * 2;
 				const maxW = Math.max(80, parentW);
 
 				const onMove = (mv: MouseEvent) => {
@@ -542,7 +548,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 						Math.max(80, startW + (mv.clientX - startX)),
 					);
 					setTablePixelWidth(table, newW);
-					this.repositionColHandles(table);
+					this.syncHandlePositions(table);
 				};
 
 				const onUp = () => {
@@ -564,11 +570,10 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			this.detachFns.push(() => rightEdge.removeEventListener("mousedown", onDown));
 		}
 
-		// Bottom edge: overall table height
+		// Bottom edge: overall table height (centered on the bottom border line)
 		const bottomEdge = doc.createElement("div");
 		bottomEdge.className = "bpf-edge-handle-bottom";
 		bottomEdge.title = "Drag to resize table height";
-		bottomEdge.style.width = `${tableRect.width}px`;
 		wrap.appendChild(bottomEdge);
 		{
 			const onDown = (ev: MouseEvent) => {
@@ -595,7 +600,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 						if (!row) continue;
 						row.style.height = `${Math.max(16, Math.round(startRowHeights[ri] * scale))}px`;
 					}
-					this.repositionColHandles(table);
+					this.syncHandlePositions(table);
 				};
 
 				const onUp = () => {
@@ -618,6 +623,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 				bottomEdge.removeEventListener("mousedown", onDown),
 			);
 		}
+
+		this.syncHandlePositions(table);
 	}
 
 	private selectedInActiveTable(): {
