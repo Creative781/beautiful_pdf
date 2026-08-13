@@ -39,7 +39,9 @@ export async function renderNoteHtml(
 
 	const host = document.body.createDiv({
 		cls: "beautiful-pdf-render-host",
-		attr: { style: "position:fixed;left:-10000px;top:0;width:800px;visibility:hidden;" },
+		attr: {
+			style: `position:fixed;left:-10000px;top:0;width:${contentWidthPx(profile)}px;visibility:hidden;`,
+		},
 	});
 	const viewEl = host.createDiv({
 		cls: "markdown-preview-view markdown-rendered",
@@ -266,6 +268,22 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 		binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
 	}
 	return btoa(binary);
+}
+
+function contentWidthPx(profile: Profile): number {
+	const page = profile.page;
+	const widthMm =
+		page.pageSize === "Custom"
+			? page.pageWidthMm
+			: page.pageSize === "Letter" || page.pageSize === "Legal"
+				? 215.9
+				: 210;
+	const contentMm = Math.max(
+		40,
+		widthMm - page.marginLeftMm - page.marginRightMm,
+	);
+	// CSS reference pixel ≈ 96dpi
+	return Math.round((contentMm / 25.4) * 96);
 }
 
 function escapeAttr(s: string): string {

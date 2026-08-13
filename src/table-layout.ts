@@ -65,12 +65,17 @@ export function normalizePercents(values: number[]): number[] {
 	return cleaned.map((v) => (v / sum) * 100);
 }
 
+export function markTableTouched(table: HTMLTableElement): void {
+	table.dataset.bpfTouched = "1";
+	table.classList.add("bpf-table-sized");
+}
+
 /**
  * Keep the table's current pixel width (do not stretch to 100%).
  * Needed before `table-layout: fixed` so column drags only redistribute.
  */
 export function lockTablePixelWidth(table: HTMLTableElement): void {
-	table.classList.add("bpf-table-sized");
+	markTableTouched(table);
 	const existing = table.style.width;
 	if (existing && existing !== "100%" && existing !== "auto") return;
 	const w = Math.round(table.getBoundingClientRect().width);
@@ -79,21 +84,28 @@ export function lockTablePixelWidth(table: HTMLTableElement): void {
 }
 
 export function setTablePixelWidth(table: HTMLTableElement, widthPx: number): void {
-	table.classList.add("bpf-table-sized");
+	markTableTouched(table);
 	table.style.width = `${Math.max(40, Math.round(widthPx))}px`;
 	table.style.maxWidth = "100%";
 }
 
 export function setTablePixelHeight(table: HTMLTableElement, heightPx: number): void {
-	table.classList.add("bpf-table-sized");
+	markTableTouched(table);
 	table.style.height = `${Math.max(24, Math.round(heightPx))}px`;
 }
 
-/** Table width as % of parent content width. */
+function layoutParent(table: HTMLTableElement): HTMLElement | null {
+	return (
+		(table.closest(".markdown-preview-view") as HTMLElement | null) ??
+		table.parentElement
+	);
+}
+
+/** Table width as % of the note content column. */
 export function measureTableWidthPct(table: HTMLTableElement): number | undefined {
-	const parent = table.parentElement;
+	const parent = layoutParent(table);
 	if (!parent) return undefined;
-	const pw = parent.getBoundingClientRect().width;
+	const pw = parent.clientWidth || parent.getBoundingClientRect().width;
 	if (pw <= 1) return undefined;
 	const tw = table.getBoundingClientRect().width;
 	return Math.min(100, Math.max(5, (tw / pw) * 100));
@@ -101,7 +113,7 @@ export function measureTableWidthPct(table: HTMLTableElement): number | undefine
 
 export function applyTableWidthPct(table: HTMLTableElement, widthPct: number): void {
 	const pct = Math.min(100, Math.max(5, widthPct));
-	table.classList.add("bpf-table-sized");
+	markTableTouched(table);
 	table.style.width = `${pct}%`;
 	table.style.maxWidth = "100%";
 }
@@ -187,6 +199,29 @@ export function applyRowHeightsPx(
 	}
 }
 
+/**
+ * Remove editor-only chrome so capture/PDF never see handles or wrappers.
+ * Safe to call on the adjust-iframe DOM before snapshotting layouts.
+ */
+export function stripEditorChrome(root: HTMLElement): void {
+	root
+		.querySelectorAll(
+			".bpf-col-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom, .bpf-table-hint",
+		)
+		.forEach((el) => el.remove());
+	root.querySelectorAll(".bpf-cell-selected").forEach((el) => {
+		el.classList.remove("bpf-cell-selected");
+	});
+	root.querySelectorAll(".bpf-table-wrap").forEach((wrap) => {
+		const parent = wrap.parentElement;
+		if (!parent) return;
+		while (wrap.firstChild) {
+			parent.insertBefore(wrap.firstChild, wrap);
+		}
+		wrap.remove();
+	});
+}
+
 /** Apply saved layouts onto rendered note HTML (by table index). */
 export function applyNoteTableLayouts(
 	root: HTMLElement,
@@ -197,24 +232,36 @@ export function applyNoteTableLayouts(
 	for (const layout of layouts.tables) {
 		const table = tables[layout.index] as HTMLTableElement | undefined;
 		if (!table) continue;
-		if (layout.widthPct != null && layout.widthPct > 0) {
-			applyTableWidthPct(table, layout.widthPct);
-		}
+		table.classList.add("bpf-table-sized");
+
 		if (layout.colWidthsPct?.length) {
-			applyColWidthsPct(table, layout.colWidthsPct);
-			// Prefer saved widthPct over the pixel lock from applyColWidthsPct
-			if (layout.widthPct != null && layout.widthPct > 0) {
-				applyTableWidthPct(table, layout.widthPct);
+			const n = Math.max(tableColumnCount(table), layout.colWidthsPct.length);
+			const pct = normalizePercents(
+				layout.colWidthsPct.length === n
+					? layout.colWidthsPct
+					: padOrTrim(layout.colWidthsPct, n, 100 / Math.max(1, n)),
+			);
+			const cols = ensureColgroup(table, n);
+			for (let i = 0; i < n; i++) {
+				cols[i].style.width = `${pct[i]}%`;
 			}
 		}
+
+		if (layout.widthPct != null && layout.widthPct > 0) {
+			table.style.width = `${Math.min(100, Math.max(5, layout.widthPct))}%`;
+			table.style.maxWidth = "100%";
+		}
+
 		applyRowHeightsPx(table, layout.rowHeightsPx);
+
 		if (layout.heightPx != null && layout.heightPx > 0) {
-			setTablePixelHeight(table, layout.heightPx);
+			table.style.height = `${Math.round(layout.heightPx)}px`;
 		}
 	}
 }
 
 function tableHasCustomSizing(table: HTMLTableElement): boolean {
+	if (table.dataset.bpfTouched === "1") return true;
 	if (table.classList.contains("bpf-table-sized")) return true;
 	if (table.style.width || table.style.height) return true;
 	if (table.querySelector("colgroup")) return true;
@@ -224,27 +271,32 @@ function tableHasCustomSizing(table: HTMLTableElement): boolean {
 
 /** Snapshot all tables in root into a NoteTableLayouts payload. */
 export function captureNoteTableLayouts(root: HTMLElement): NoteTableLayouts {
+	stripEditorChrome(root);
 	const tables = Array.from(root.querySelectorAll("table")) as HTMLTableElement[];
 	const out: TableLayout[] = [];
 	tables.forEach((table, index) => {
 		if (!tableHasCustomSizing(table)) return;
 		const colWidthsPct = measureColWidthsPct(table);
+		const hasRowOverride = Array.from(table.rows).some((r) => !!r.style.height);
+		const heightPx = parseFloat(table.style.height);
 		const rowHeightsPx = Array.from(table.rows).map((row) => {
 			const h = parseFloat(row.style.height);
 			if (Number.isFinite(h) && h > 0) return h;
 			return Math.round(row.getBoundingClientRect().height);
 		});
-		const hasRowOverride = Array.from(table.rows).some((r) => !!r.style.height);
-		const heightPx = parseFloat(table.style.height);
+		const widthPct = measureTableWidthPct(table);
 		out.push({
 			index,
 			colWidthsPct,
-			rowHeightsPx: hasRowOverride ? rowHeightsPx : undefined,
-			widthPct: measureTableWidthPct(table),
-			heightPx:
-				Number.isFinite(heightPx) && heightPx > 0
-					? heightPx
+			// Always persist row heights when table height or any row was set —
+			// PDF print respects tr heights more reliably than table height alone.
+			rowHeightsPx:
+				hasRowOverride || (Number.isFinite(heightPx) && heightPx > 0)
+					? rowHeightsPx
 					: undefined,
+			widthPct,
+			heightPx:
+				Number.isFinite(heightPx) && heightPx > 0 ? heightPx : undefined,
 		});
 	});
 	return { tables: out };
@@ -253,6 +305,7 @@ export function captureNoteTableLayouts(root: HTMLElement): NoteTableLayouts {
 /** Clear sizing classes/styles on all tables (reset). */
 export function resetTableSizing(table: HTMLTableElement): void {
 	table.classList.remove("bpf-table-sized");
+	delete table.dataset.bpfTouched;
 	table.style.width = "";
 	table.style.height = "";
 	table.style.maxWidth = "";

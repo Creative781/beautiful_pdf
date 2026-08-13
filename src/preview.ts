@@ -3,6 +3,7 @@ import { exportPdfToFile, generatePdf } from "./export";
 import type BeautifulPdfPlugin from "./main";
 import { getActiveProfile } from "./profiles";
 import { layoutsForFile, TableAdjustModal } from "./table-editor";
+import type { NoteTableLayouts } from "./table-layout";
 import type { Profile } from "./types";
 
 export class PreviewModal extends Modal {
@@ -44,8 +45,8 @@ export class PreviewModal extends Modal {
 
 		const adjustBtn = toolbar.createEl("button", { text: "Adjust tables…" });
 		adjustBtn.onclick = () => {
-			new TableAdjustModal(this.app, this.plugin, this.file, () => {
-				void this.refresh();
+			new TableAdjustModal(this.app, this.plugin, this.file, (layouts) => {
+				void this.refresh(layouts);
 			}).open();
 		};
 
@@ -70,13 +71,16 @@ export class PreviewModal extends Modal {
 		void this.refresh();
 	}
 
-	async refresh(): Promise<void> {
+	async refresh(layoutsOverride?: NoteTableLayouts | null): Promise<void> {
 		if (this.generating) return;
 		this.generating = true;
 		this.setStatus("Generating PDF…");
 		try {
 			const profile = getActiveProfile(this.plugin.settings);
-			const layouts = layoutsForFile(this.plugin, this.file);
+			const layouts =
+				layoutsOverride !== undefined
+					? layoutsOverride
+					: layoutsForFile(this.plugin, this.file);
 			const { data } = await generatePdf(this.app, this.file, profile, {
 				tableLayouts: layouts,
 			});
