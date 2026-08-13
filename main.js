@@ -273,10 +273,10 @@ table {
   line-height: ${lineHeightCss(e.table.lineHeight, 140)};
   break-inside: auto;
 }
-/* User-adjusted column widths from the table layout step */
+/* User-adjusted tables: width comes from inline style (px or %), not forced 100% */
 table.bpf-table-sized {
-  width: 100%;
   table-layout: fixed;
+  max-width: 100%;
 }
 th, td {
   border: 1px solid #bbb;
@@ -503,6 +503,40 @@ function normalizePercents(values) {
   }
   return cleaned.map((v) => v / sum * 100);
 }
+function lockTablePixelWidth(table) {
+  table.classList.add("bpf-table-sized");
+  const existing = table.style.width;
+  if (existing && existing !== "100%" && existing !== "auto")
+    return;
+  const w = Math.round(table.getBoundingClientRect().width);
+  table.style.width = `${Math.max(40, w)}px`;
+  table.style.maxWidth = "100%";
+}
+function setTablePixelWidth(table, widthPx) {
+  table.classList.add("bpf-table-sized");
+  table.style.width = `${Math.max(40, Math.round(widthPx))}px`;
+  table.style.maxWidth = "100%";
+}
+function setTablePixelHeight(table, heightPx) {
+  table.classList.add("bpf-table-sized");
+  table.style.height = `${Math.max(24, Math.round(heightPx))}px`;
+}
+function measureTableWidthPct(table) {
+  const parent = table.parentElement;
+  if (!parent)
+    return void 0;
+  const pw = parent.getBoundingClientRect().width;
+  if (pw <= 1)
+    return void 0;
+  const tw = table.getBoundingClientRect().width;
+  return Math.min(100, Math.max(5, tw / pw * 100));
+}
+function applyTableWidthPct(table, widthPct) {
+  const pct = Math.min(100, Math.max(5, widthPct));
+  table.classList.add("bpf-table-sized");
+  table.style.width = `${pct}%`;
+  table.style.maxWidth = "100%";
+}
 function measureColWidthsPct(table) {
   const n = tableColumnCount(table);
   if (n === 0)
@@ -540,12 +574,12 @@ function cellAtColumn(table, rowIndex, colIndex) {
   return null;
 }
 function applyColWidthsPct(table, colWidthsPct) {
+  lockTablePixelWidth(table);
   const n = Math.max(tableColumnCount(table), colWidthsPct.length);
   const pct = normalizePercents(
     colWidthsPct.length === n ? colWidthsPct : padOrTrim(colWidthsPct, n, 100 / Math.max(1, n))
   );
   const cols = ensureColgroup(table, n);
-  table.classList.add("bpf-table-sized");
   for (let i = 0; i < n; i++) {
     cols[i].style.width = `${pct[i]}%`;
   }
@@ -576,16 +610,38 @@ function applyNoteTableLayouts(root, layouts) {
     const table = tables[layout.index];
     if (!table)
       continue;
+    if (layout.widthPct != null && layout.widthPct > 0) {
+      applyTableWidthPct(table, layout.widthPct);
+    }
     if ((_b = layout.colWidthsPct) == null ? void 0 : _b.length) {
       applyColWidthsPct(table, layout.colWidthsPct);
+      if (layout.widthPct != null && layout.widthPct > 0) {
+        applyTableWidthPct(table, layout.widthPct);
+      }
     }
     applyRowHeightsPx(table, layout.rowHeightsPx);
+    if (layout.heightPx != null && layout.heightPx > 0) {
+      setTablePixelHeight(table, layout.heightPx);
+    }
   }
+}
+function tableHasCustomSizing(table) {
+  if (table.classList.contains("bpf-table-sized"))
+    return true;
+  if (table.style.width || table.style.height)
+    return true;
+  if (table.querySelector("colgroup"))
+    return true;
+  if (Array.from(table.rows).some((r) => !!r.style.height))
+    return true;
+  return false;
 }
 function captureNoteTableLayouts(root) {
   const tables = Array.from(root.querySelectorAll("table"));
   const out = [];
   tables.forEach((table, index) => {
+    if (!tableHasCustomSizing(table))
+      return;
     const colWidthsPct = measureColWidthsPct(table);
     const rowHeightsPx = Array.from(table.rows).map((row) => {
       const h = parseFloat(row.style.height);
@@ -593,20 +649,23 @@ function captureNoteTableLayouts(root) {
         return h;
       return Math.round(row.getBoundingClientRect().height);
     });
-    const hasSized = table.classList.contains("bpf-table-sized");
     const hasRowOverride = Array.from(table.rows).some((r) => !!r.style.height);
-    if (!hasSized && !hasRowOverride)
-      return;
+    const heightPx = parseFloat(table.style.height);
     out.push({
       index,
       colWidthsPct,
-      rowHeightsPx: hasRowOverride ? rowHeightsPx : void 0
+      rowHeightsPx: hasRowOverride ? rowHeightsPx : void 0,
+      widthPct: measureTableWidthPct(table),
+      heightPx: Number.isFinite(heightPx) && heightPx > 0 ? heightPx : void 0
     });
   });
   return { tables: out };
 }
 function resetTableSizing(table) {
   table.classList.remove("bpf-table-sized");
+  table.style.width = "";
+  table.style.height = "";
+  table.style.maxWidth = "";
   const group = table.querySelector("colgroup");
   group == null ? void 0 : group.remove();
   for (const row of Array.from(table.rows)) {
@@ -1475,7 +1534,7 @@ var TableAdjustModal = class extends import_obsidian3.Modal {
     contentEl.createEl("h2", { text: "Adjust tables" });
     const tip = contentEl.createDiv({ cls: "beautiful-pdf-tip" });
     tip.setText(
-      "Drag column edges to resize. Click cells to select (Ctrl/Cmd+click for multiple). Then equalize width or height. Apply saves for this note and continues to PDF."
+      "Inner column edges redistribute columns (table width stays). Drag the rightmost edge to change overall width, and the bottom edge for overall height. Ctrl/Cmd+click cells to equalize."
     );
     const toolbar = contentEl.createDiv({ cls: "beautiful-pdf-toolbar" });
     const mk = (label, cls, fn) => {
@@ -1561,6 +1620,32 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 .bpf-col-handle:hover, .bpf-col-handle.is-dragging {
   background: rgba(37, 99, 235, 0.35);
 }
+.bpf-edge-handle-right {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 7;
+  background: transparent;
+}
+.bpf-edge-handle-bottom {
+  position: absolute;
+  left: 0;
+  bottom: -4px;
+  width: 100%;
+  height: 8px;
+  cursor: ns-resize;
+  z-index: 7;
+  background: transparent;
+}
+.bpf-edge-handle-right:hover,
+.bpf-edge-handle-bottom:hover,
+.bpf-edge-handle-right.is-dragging,
+.bpf-edge-handle-bottom.is-dragging {
+  background: rgba(37, 99, 235, 0.4);
+}
 .bpf-table-hint {
   font-size: 11px;
   color: #6b7280;
@@ -1638,7 +1723,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       };
       table.addEventListener("click", onCellClick);
       this.detachFns.push(() => table.removeEventListener("click", onCellClick));
-      this.installColHandles(table, tableIndex);
+      this.installResizeHandles(table, tableIndex);
     });
   }
   paintSelection() {
@@ -1657,17 +1742,30 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       cell == null ? void 0 : cell.classList.add("bpf-cell-selected");
     }
   }
-  installColHandles(table, tableIndex) {
+  clearHandles(table) {
+    table.querySelectorAll(
+      ".bpf-col-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom"
+    ).forEach((h) => h.remove());
+  }
+  repositionColHandles(table) {
+    const tableLeft = table.getBoundingClientRect().left;
+    table.querySelectorAll(".bpf-col-handle").forEach((h) => {
+      var _a;
+      const col = Number(h.dataset.col);
+      const c = (_a = table.rows[0]) == null ? void 0 : _a.cells[col];
+      if (!c)
+        return;
+      h.style.left = `${c.getBoundingClientRect().right - tableLeft}px`;
+    });
+  }
+  installResizeHandles(table, tableIndex) {
     var _a;
     const doc = this.doc();
     if (!doc)
       return;
-    table.querySelectorAll(".bpf-col-handle").forEach((h) => h.remove());
+    this.clearHandles(table);
     const n = tableColumnCount(table);
-    if (n < 2)
-      return;
-    const rect = table.getBoundingClientRect();
-    const tableLeft = rect.left;
+    const tableLeft = table.getBoundingClientRect().left;
     for (let i = 0; i < n - 1; i++) {
       const cell = (_a = table.rows[0]) == null ? void 0 : _a.cells[i];
       if (!cell)
@@ -1683,6 +1781,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
         ev.stopPropagation();
         this.activeTableIndex = tableIndex;
         handle.classList.add("is-dragging");
+        lockTablePixelWidth(table);
         const startPct = measureColWidthsPct(table);
         applyColWidthsPct(table, startPct);
         const startX = ev.clientX;
@@ -1706,15 +1805,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
           next[left] = a;
           next[right] = b;
           applyColWidthsPct(table, normalizePercents(next));
-          const tLeft = table.getBoundingClientRect().left;
-          table.querySelectorAll(".bpf-col-handle").forEach((h) => {
-            var _a2;
-            const col = Number(h.dataset.col);
-            const c = (_a2 = table.rows[0]) == null ? void 0 : _a2.cells[col];
-            if (!c)
-              return;
-            h.style.left = `${c.getBoundingClientRect().right - tLeft}px`;
-          });
+          this.repositionColHandles(table);
         };
         const onUp = () => {
           handle.classList.remove("is-dragging");
@@ -1727,6 +1818,92 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       };
       handle.addEventListener("mousedown", onDown);
       this.detachFns.push(() => handle.removeEventListener("mousedown", onDown));
+    }
+    const rightEdge = doc.createElement("div");
+    rightEdge.className = "bpf-edge-handle-right";
+    rightEdge.title = "Drag to resize table width";
+    table.appendChild(rightEdge);
+    {
+      const onDown = (ev) => {
+        var _a2, _b;
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.activeTableIndex = tableIndex;
+        rightEdge.classList.add("is-dragging");
+        const pct = measureColWidthsPct(table);
+        applyColWidthsPct(table, pct);
+        const startW = table.getBoundingClientRect().width;
+        const startX = ev.clientX;
+        const parentW = (_b = (_a2 = table.parentElement) == null ? void 0 : _a2.getBoundingClientRect().width) != null ? _b : startW * 2;
+        const maxW = Math.max(80, parentW);
+        const onMove = (mv) => {
+          const newW = Math.min(
+            maxW,
+            Math.max(80, startW + (mv.clientX - startX))
+          );
+          setTablePixelWidth(table, newW);
+          this.repositionColHandles(table);
+        };
+        const onUp = () => {
+          rightEdge.classList.remove("is-dragging");
+          doc.removeEventListener("mousemove", onMove);
+          doc.removeEventListener("mouseup", onUp);
+          this.setStatus(
+            `Table ${tableIndex + 1} \xB7 width ${Math.round(
+              table.getBoundingClientRect().width
+            )}px`
+          );
+        };
+        doc.addEventListener("mousemove", onMove);
+        doc.addEventListener("mouseup", onUp);
+      };
+      rightEdge.addEventListener("mousedown", onDown);
+      this.detachFns.push(() => rightEdge.removeEventListener("mousedown", onDown));
+    }
+    const bottomEdge = doc.createElement("div");
+    bottomEdge.className = "bpf-edge-handle-bottom";
+    bottomEdge.title = "Drag to resize table height";
+    table.appendChild(bottomEdge);
+    {
+      const onDown = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.activeTableIndex = tableIndex;
+        bottomEdge.classList.add("is-dragging");
+        const startH = table.getBoundingClientRect().height;
+        const startY = ev.clientY;
+        const rowCount = Math.max(1, table.rows.length);
+        const startRowHeights = Array.from(table.rows).map(
+          (r) => r.getBoundingClientRect().height
+        );
+        const onMove = (mv) => {
+          const newH = Math.max(32, startH + (mv.clientY - startY));
+          setTablePixelHeight(table, newH);
+          const scale = newH / Math.max(1, startH);
+          for (let ri = 0; ri < rowCount; ri++) {
+            const row = table.rows[ri];
+            if (!row)
+              continue;
+            row.style.height = `${Math.max(16, Math.round(startRowHeights[ri] * scale))}px`;
+          }
+        };
+        const onUp = () => {
+          bottomEdge.classList.remove("is-dragging");
+          doc.removeEventListener("mousemove", onMove);
+          doc.removeEventListener("mouseup", onUp);
+          this.setStatus(
+            `Table ${tableIndex + 1} \xB7 height ${Math.round(
+              table.getBoundingClientRect().height
+            )}px`
+          );
+        };
+        doc.addEventListener("mousemove", onMove);
+        doc.addEventListener("mouseup", onUp);
+      };
+      bottomEdge.addEventListener("mousedown", onDown);
+      this.detachFns.push(
+        () => bottomEdge.removeEventListener("mousedown", onDown)
+      );
     }
   }
   selectedInActiveTable() {
@@ -1797,8 +1974,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     const table = tables[this.activeTableIndex];
     if (!table)
       return;
-    table.querySelectorAll(".bpf-col-handle").forEach((h) => h.remove());
-    this.installColHandles(table, this.activeTableIndex);
+    this.clearHandles(table);
+    this.installResizeHandles(table, this.activeTableIndex);
   }
   resetActiveTable() {
     const root = this.root();
@@ -1809,8 +1986,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     if (!table)
       return;
     resetTableSizing(table);
-    table.querySelectorAll(".bpf-col-handle").forEach((h) => h.remove());
-    this.installColHandles(table, this.activeTableIndex);
+    this.clearHandles(table);
+    this.installResizeHandles(table, this.activeTableIndex);
     this.setStatus(`Table ${this.activeTableIndex + 1} \xB7 reset`);
   }
   clearAllSizing() {
@@ -1820,8 +1997,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     const tables = Array.from(root.querySelectorAll("table"));
     tables.forEach((table, i) => {
       resetTableSizing(table);
-      table.querySelectorAll(".bpf-col-handle").forEach((h) => h.remove());
-      this.installColHandles(table, i);
+      this.clearHandles(table);
+      this.installResizeHandles(table, i);
     });
     if (this.plugin.settings.tableLayouts) {
       delete this.plugin.settings.tableLayouts[this.file.path];
@@ -1833,14 +2010,6 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     const root = this.root();
     if (!root)
       return;
-    const tables = Array.from(root.querySelectorAll("table"));
-    for (const table of tables) {
-      if (table.querySelector("colgroup")) {
-        const pct = measureColWidthsPct(table);
-        applyColWidthsPct(table, pct);
-        ensureColgroup(table, pct.length);
-      }
-    }
     const layouts = captureNoteTableLayouts(root);
     if (!this.plugin.settings.tableLayouts) {
       this.plugin.settings.tableLayouts = {};

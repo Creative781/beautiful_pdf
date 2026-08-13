@@ -5,10 +5,12 @@ import { renderNoteHtml } from "./render";
 import {
 	applyColWidthsPct,
 	captureNoteTableLayouts,
-	ensureColgroup,
+	lockTablePixelWidth,
 	measureColWidthsPct,
 	normalizePercents,
 	resetTableSizing,
+	setTablePixelHeight,
+	setTablePixelWidth,
 	tableColumnCount,
 	type NoteTableLayouts,
 } from "./table-layout";
@@ -50,7 +52,7 @@ export class TableAdjustModal extends Modal {
 
 		const tip = contentEl.createDiv({ cls: "beautiful-pdf-tip" });
 		tip.setText(
-			"Drag column edges to resize. Click cells to select (Ctrl/Cmd+click for multiple). Then equalize width or height. Apply saves for this note and continues to PDF.",
+			"Inner column edges redistribute columns (table width stays). Drag the rightmost edge to change overall width, and the bottom edge for overall height. Ctrl/Cmd+click cells to equalize.",
 		);
 
 		const toolbar = contentEl.createDiv({ cls: "beautiful-pdf-toolbar" });
@@ -150,6 +152,32 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 .bpf-col-handle:hover, .bpf-col-handle.is-dragging {
   background: rgba(37, 99, 235, 0.35);
 }
+.bpf-edge-handle-right {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 7;
+  background: transparent;
+}
+.bpf-edge-handle-bottom {
+  position: absolute;
+  left: 0;
+  bottom: -4px;
+  width: 100%;
+  height: 8px;
+  cursor: ns-resize;
+  z-index: 7;
+  background: transparent;
+}
+.bpf-edge-handle-right:hover,
+.bpf-edge-handle-bottom:hover,
+.bpf-edge-handle-right.is-dragging,
+.bpf-edge-handle-bottom.is-dragging {
+  background: rgba(37, 99, 235, 0.4);
+}
 .bpf-table-hint {
   font-size: 11px;
   color: #6b7280;
@@ -231,7 +259,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			table.addEventListener("click", onCellClick);
 			this.detachFns.push(() => table.removeEventListener("click", onCellClick));
 
-			this.installColHandles(table, tableIndex);
+			this.installResizeHandles(table, tableIndex);
 		});
 	}
 
@@ -250,17 +278,35 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		}
 	}
 
-	private installColHandles(table: HTMLTableElement, tableIndex: number): void {
+	private clearHandles(table: HTMLTableElement): void {
+		table
+			.querySelectorAll(
+				".bpf-col-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom",
+			)
+			.forEach((h) => h.remove());
+	}
+
+	private repositionColHandles(table: HTMLTableElement): void {
+		const tableLeft = table.getBoundingClientRect().left;
+		table.querySelectorAll(".bpf-col-handle").forEach((h) => {
+			const col = Number((h as HTMLElement).dataset.col);
+			const c = table.rows[0]?.cells[col];
+			if (!c) return;
+			(h as HTMLElement).style.left = `${
+				c.getBoundingClientRect().right - tableLeft
+			}px`;
+		});
+	}
+
+	private installResizeHandles(table: HTMLTableElement, tableIndex: number): void {
 		const doc = this.doc();
 		if (!doc) return;
 
-		table.querySelectorAll(".bpf-col-handle").forEach((h) => h.remove());
+		this.clearHandles(table);
 		const n = tableColumnCount(table);
-		if (n < 2) return;
+		const tableLeft = table.getBoundingClientRect().left;
 
-		const rect = table.getBoundingClientRect();
-		const tableLeft = rect.left;
-
+		// Inner borders: redistribute adjacent columns; keep overall width
 		for (let i = 0; i < n - 1; i++) {
 			const cell = table.rows[0]?.cells[i];
 			if (!cell) continue;
@@ -276,7 +322,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 				ev.stopPropagation();
 				this.activeTableIndex = tableIndex;
 				handle.classList.add("is-dragging");
-				// Lock current visual widths into % on first drag
+				lockTablePixelWidth(table);
 				const startPct = measureColWidthsPct(table);
 				applyColWidthsPct(table, startPct);
 				const startX = ev.clientX;
@@ -301,15 +347,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 					next[left] = a;
 					next[right] = b;
 					applyColWidthsPct(table, normalizePercents(next));
-					const tLeft = table.getBoundingClientRect().left;
-					table.querySelectorAll(".bpf-col-handle").forEach((h) => {
-						const col = Number((h as HTMLElement).dataset.col);
-						const c = table.rows[0]?.cells[col];
-						if (!c) return;
-						(h as HTMLElement).style.left = `${
-							c.getBoundingClientRect().right - tLeft
-						}px`;
-					});
+					this.repositionColHandles(table);
 				};
 
 				const onUp = () => {
@@ -325,6 +363,102 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 
 			handle.addEventListener("mousedown", onDown);
 			this.detachFns.push(() => handle.removeEventListener("mousedown", onDown));
+		}
+
+		// Right edge: overall table width
+		const rightEdge = doc.createElement("div");
+		rightEdge.className = "bpf-edge-handle-right";
+		rightEdge.title = "Drag to resize table width";
+		table.appendChild(rightEdge);
+		{
+			const onDown = (ev: MouseEvent) => {
+				ev.preventDefault();
+				ev.stopPropagation();
+				this.activeTableIndex = tableIndex;
+				rightEdge.classList.add("is-dragging");
+				// Lock column ratios first, then grow/shrink the box
+				const pct = measureColWidthsPct(table);
+				applyColWidthsPct(table, pct);
+				const startW = table.getBoundingClientRect().width;
+				const startX = ev.clientX;
+				const parentW =
+					table.parentElement?.getBoundingClientRect().width ?? startW * 2;
+				const maxW = Math.max(80, parentW);
+
+				const onMove = (mv: MouseEvent) => {
+					const newW = Math.min(
+						maxW,
+						Math.max(80, startW + (mv.clientX - startX)),
+					);
+					setTablePixelWidth(table, newW);
+					this.repositionColHandles(table);
+				};
+
+				const onUp = () => {
+					rightEdge.classList.remove("is-dragging");
+					doc.removeEventListener("mousemove", onMove);
+					doc.removeEventListener("mouseup", onUp);
+					this.setStatus(
+						`Table ${tableIndex + 1} · width ${Math.round(
+							table.getBoundingClientRect().width,
+						)}px`,
+					);
+				};
+
+				doc.addEventListener("mousemove", onMove);
+				doc.addEventListener("mouseup", onUp);
+			};
+			rightEdge.addEventListener("mousedown", onDown);
+			this.detachFns.push(() => rightEdge.removeEventListener("mousedown", onDown));
+		}
+
+		// Bottom edge: overall table height
+		const bottomEdge = doc.createElement("div");
+		bottomEdge.className = "bpf-edge-handle-bottom";
+		bottomEdge.title = "Drag to resize table height";
+		table.appendChild(bottomEdge);
+		{
+			const onDown = (ev: MouseEvent) => {
+				ev.preventDefault();
+				ev.stopPropagation();
+				this.activeTableIndex = tableIndex;
+				bottomEdge.classList.add("is-dragging");
+				const startH = table.getBoundingClientRect().height;
+				const startY = ev.clientY;
+				const rowCount = Math.max(1, table.rows.length);
+				const startRowHeights = Array.from(table.rows).map((r) =>
+					r.getBoundingClientRect().height,
+				);
+
+				const onMove = (mv: MouseEvent) => {
+					const newH = Math.max(32, startH + (mv.clientY - startY));
+					setTablePixelHeight(table, newH);
+					const scale = newH / Math.max(1, startH);
+					for (let ri = 0; ri < rowCount; ri++) {
+						const row = table.rows[ri];
+						if (!row) continue;
+						row.style.height = `${Math.max(16, Math.round(startRowHeights[ri] * scale))}px`;
+					}
+				};
+
+				const onUp = () => {
+					bottomEdge.classList.remove("is-dragging");
+					doc.removeEventListener("mousemove", onMove);
+					doc.removeEventListener("mouseup", onUp);
+					this.setStatus(
+						`Table ${tableIndex + 1} · height ${Math.round(
+							table.getBoundingClientRect().height,
+						)}px`,
+					);
+				};
+
+				doc.addEventListener("mousemove", onMove);
+				doc.addEventListener("mouseup", onUp);
+			};
+			bottomEdge.addEventListener("mousedown", onDown);
+			this.detachFns.push(() =>
+				bottomEdge.removeEventListener("mousedown", onDown),
+			);
 		}
 	}
 
@@ -393,9 +527,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		const tables = Array.from(root.querySelectorAll("table")) as HTMLTableElement[];
 		const table = tables[this.activeTableIndex];
 		if (!table) return;
-		table.querySelectorAll(".bpf-col-handle").forEach((h) => h.remove());
-		// Drop old handle listeners by re-wiring only this table's handles
-		this.installColHandles(table, this.activeTableIndex);
+		this.clearHandles(table);
+		this.installResizeHandles(table, this.activeTableIndex);
 	}
 
 	private resetActiveTable(): void {
@@ -405,8 +538,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		const table = tables[this.activeTableIndex];
 		if (!table) return;
 		resetTableSizing(table);
-		table.querySelectorAll(".bpf-col-handle").forEach((h) => h.remove());
-		this.installColHandles(table, this.activeTableIndex);
+		this.clearHandles(table);
+		this.installResizeHandles(table, this.activeTableIndex);
 		this.setStatus(`Table ${this.activeTableIndex + 1} · reset`);
 	}
 
@@ -416,8 +549,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		const tables = Array.from(root.querySelectorAll("table")) as HTMLTableElement[];
 		tables.forEach((table, i) => {
 			resetTableSizing(table);
-			table.querySelectorAll(".bpf-col-handle").forEach((h) => h.remove());
-			this.installColHandles(table, i);
+			this.clearHandles(table);
+			this.installResizeHandles(table, i);
 		});
 		if (this.plugin.settings.tableLayouts) {
 			delete this.plugin.settings.tableLayouts[this.file.path];
@@ -429,15 +562,6 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 	private async applyAndClose(): Promise<void> {
 		const root = this.root();
 		if (!root) return;
-		// Mark every table that has colgroup as sized so capture keeps them
-		const tables = Array.from(root.querySelectorAll("table")) as HTMLTableElement[];
-		for (const table of tables) {
-			if (table.querySelector("colgroup")) {
-				const pct = measureColWidthsPct(table);
-				applyColWidthsPct(table, pct);
-				ensureColgroup(table, pct.length);
-			}
-		}
 		const layouts = captureNoteTableLayouts(root);
 		if (!this.plugin.settings.tableLayouts) {
 			this.plugin.settings.tableLayouts = {};
