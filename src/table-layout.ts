@@ -80,13 +80,15 @@ export function lockTablePixelWidth(table: HTMLTableElement): void {
 	if (existing && existing !== "100%" && existing !== "auto") return;
 	const w = Math.round(table.getBoundingClientRect().width);
 	table.style.width = `${Math.max(40, w)}px`;
-	table.style.maxWidth = "100%";
+	// Do not set max-width:100% here — inside a fit-content wrap it
+	// circularly clamps and blocks growing the table via the right edge.
+	table.style.maxWidth = "none";
 }
 
 export function setTablePixelWidth(table: HTMLTableElement, widthPx: number): void {
 	markTableTouched(table);
 	table.style.width = `${Math.max(40, Math.round(widthPx))}px`;
-	table.style.maxWidth = "100%";
+	table.style.maxWidth = "none";
 }
 
 export function setTablePixelHeight(table: HTMLTableElement, heightPx: number): void {

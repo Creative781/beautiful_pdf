@@ -149,6 +149,11 @@ html, body {
   width: fit-content;
   max-width: 100%;
   margin: 0 0 8px;
+  /* Keep edge handles inside the wrap so they stay clickable */
+  padding-right: 12px;
+  padding-bottom: 12px;
+  box-sizing: content-box;
+  overflow: visible;
 }
 table {
   position: relative;
@@ -163,8 +168,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 .bpf-col-handle {
   position: absolute;
   top: 0;
-  width: 6px;
-  margin-left: -3px;
+  width: 8px;
+  margin-left: -4px;
   cursor: col-resize;
   z-index: 5;
   background: transparent;
@@ -175,26 +180,26 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 .bpf-edge-handle-right {
   position: absolute;
   top: 0;
-  right: -4px;
-  width: 8px;
+  right: 0;
+  width: 12px;
   cursor: ew-resize;
-  z-index: 7;
+  z-index: 8;
   background: transparent;
 }
 .bpf-edge-handle-bottom {
   position: absolute;
   left: 0;
-  bottom: -4px;
-  height: 8px;
+  bottom: 0;
+  height: 12px;
   cursor: ns-resize;
-  z-index: 7;
+  z-index: 8;
   background: transparent;
 }
 .bpf-edge-handle-right:hover,
 .bpf-edge-handle-bottom:hover,
 .bpf-edge-handle-right.is-dragging,
 .bpf-edge-handle-bottom.is-dragging {
-  background: rgba(37, 99, 235, 0.4);
+  background: rgba(37, 99, 235, 0.45);
 }
 .bpf-table-hint {
   font-size: 11px;
@@ -750,6 +755,7 @@ function layoutParentWidth(table: HTMLTableElement): number {
 		(table.closest(".markdown-preview-view") as HTMLElement | null) ??
 		table.parentElement;
 	if (!parent) return 0;
+	// clientWidth excludes padding — matches the content column the table sits in
 	return parent.clientWidth || parent.getBoundingClientRect().width;
 }
 
