@@ -158,6 +158,7 @@ function profileToCss(profile) {
 html, body {
   margin: 0;
   padding: 0;
+  width: 100% !important;
   background: #fff;
   color: ${e.body.color};
   font-family: ${e.body.fontFamily};
@@ -170,6 +171,7 @@ html, body {
 .markdown-rendered {
   padding: 0 !important;
   margin: 0 !important;
+  width: 100% !important;
   background: transparent !important;
   color: inherit;
   font-family: inherit;
@@ -1009,7 +1011,7 @@ async function generatePdf(app, file, profile, options = {}) {
   const rendered = await renderNoteHtml(app, file, profile, {
     tableLayouts: options.tableLayouts
   });
-  const data = await printHtmlToPdf(rendered, profile);
+  const data = await printHtmlToPdf(rendered, profile, options.tableLayouts);
   return { data, title: rendered.title };
 }
 async function exportPdfToFile(app, file, profile, openAfter = true, options = {}) {
@@ -1041,7 +1043,8 @@ async function exportPdfToFile(app, file, profile, openAfter = true, options = {
     return null;
   }
 }
-async function printHtmlToPdf(rendered, profile) {
+async function printHtmlToPdf(rendered, profile, tableLayouts) {
+  var _a;
   const webview = createHiddenWebview();
   const ready = waitForDomReady(webview);
   document.body.appendChild(webview);
@@ -1071,7 +1074,10 @@ async function printHtmlToPdf(rendered, profile) {
 				else window.addEventListener("load", finish, { once: true });
 			}))();
 		`);
-    await sleep2(100);
+    if ((_a = tableLayouts == null ? void 0 : tableLayouts.tables) == null ? void 0 : _a.length) {
+      await webview.executeJavaScript(buildApplyTableLayoutsScript(tableLayouts));
+    }
+    await sleep2(150);
     const hf = headerFooterTemplates(profile);
     const page = profile.page;
     let pageSize = page.pageSize;
@@ -1102,6 +1108,90 @@ async function printHtmlToPdf(rendered, profile) {
   } finally {
     webview.remove();
   }
+}
+function buildApplyTableLayoutsScript(layouts) {
+  return `(() => {
+		const layouts = ${JSON.stringify(layouts)};
+		const root = document.querySelector(".markdown-preview-view") || document.body;
+		document.documentElement.style.setProperty("width", "100%", "important");
+		document.body.style.setProperty("width", "100%", "important");
+		if (root && root.style) {
+			root.style.setProperty("width", "100%", "important");
+			root.style.setProperty("max-width", "none", "important");
+		}
+		const parentW = Math.max(
+			1,
+			(root && root.clientWidth) || document.body.clientWidth || 794,
+		);
+		const tables = Array.from(document.querySelectorAll("table"));
+		let applied = 0;
+		for (const layout of layouts.tables || []) {
+			const table = tables[layout.index];
+			if (!table) continue;
+			table.style.setProperty("table-layout", "fixed", "important");
+			table.style.setProperty("max-width", "100%", "important");
+			table.style.setProperty("box-sizing", "border-box", "important");
+
+			let tablePx = 0;
+			if (layout.widthPct != null && layout.widthPct > 0) {
+				tablePx = Math.max(40, (Number(layout.widthPct) / 100) * parentW);
+				table.style.setProperty("width", tablePx + "px", "important");
+			} else {
+				tablePx = table.getBoundingClientRect().width || parentW;
+				table.style.setProperty("width", tablePx + "px", "important");
+			}
+
+			const colsPct = layout.colWidthsPct || [];
+			const n = colsPct.length;
+			if (n > 0) {
+				let group = table.querySelector("colgroup");
+				if (!group) {
+					group = document.createElement("colgroup");
+					table.insertBefore(group, table.firstChild);
+				}
+				while (group.children.length > n) group.lastElementChild.remove();
+				while (group.children.length < n) {
+					group.appendChild(document.createElement("col"));
+				}
+				const sum = colsPct.reduce((a, b) => a + (Number(b) || 0), 0) || 1;
+				for (let i = 0; i < n; i++) {
+					const pct = ((Number(colsPct[i]) || 0) / sum) * 100;
+					const px = (pct / 100) * tablePx;
+					const col = group.children[i];
+					col.style.setProperty("width", px + "px", "important");
+					col.setAttribute("width", String(Math.round(px)));
+				}
+				const row0 = table.rows[0];
+				if (row0) {
+					for (let i = 0; i < n; i++) {
+						const cell = row0.cells[i];
+						if (!cell) continue;
+						const pct = ((Number(colsPct[i]) || 0) / sum) * 100;
+						const px = (pct / 100) * tablePx;
+						cell.style.setProperty("width", px + "px", "important");
+						cell.setAttribute("width", String(Math.round(px)));
+					}
+				}
+			}
+
+			if (layout.rowHeightsPx && layout.rowHeightsPx.length) {
+				for (let i = 0; i < layout.rowHeightsPx.length; i++) {
+					const h = Number(layout.rowHeightsPx[i]);
+					if (!(h > 0) || !table.rows[i]) continue;
+					table.rows[i].style.setProperty("height", Math.round(h) + "px", "important");
+				}
+			}
+			if (layout.heightPx != null && Number(layout.heightPx) > 0) {
+				table.style.setProperty(
+					"height",
+					Math.round(Number(layout.heightPx)) + "px",
+					"important",
+				);
+			}
+			applied++;
+		}
+		return { tables: tables.length, applied: applied, parentW: parentW };
+	})()`;
 }
 function createHiddenWebview() {
   return createEl("webview", {

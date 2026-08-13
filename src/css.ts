@@ -38,6 +38,7 @@ export function profileToCss(profile: Profile): string {
 html, body {
   margin: 0;
   padding: 0;
+  width: 100% !important;
   background: #fff;
   color: ${e.body.color};
   font-family: ${e.body.fontFamily};
@@ -50,6 +51,7 @@ html, body {
 .markdown-rendered {
   padding: 0 !important;
   margin: 0 !important;
+  width: 100% !important;
   background: transparent !important;
   color: inherit;
   font-family: inherit;
