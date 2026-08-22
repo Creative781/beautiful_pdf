@@ -6,6 +6,7 @@ import {
 	applyImageLayout,
 	applyNoteImageLayouts,
 	captureNoteImageLayouts,
+	emptyNoteImageLayouts,
 	IMAGE_SIZE_PRESETS,
 	measureImageWidthPct,
 	nearestSizePreset,
@@ -14,6 +15,7 @@ import {
 	type ImageSizePreset,
 	type NoteImageLayouts,
 } from "./image-layout";
+import { htmlElement } from "./dom-guards";
 import type { PageSettings } from "./types";
 
 /**
@@ -86,7 +88,7 @@ export class ImageAdjustModal extends Modal {
 				type: "number",
 				min: "40",
 				step: "1",
-				placeholder: "px",
+				placeholder: "Width",
 				title: "Width in pixels (relative to content column)",
 				"aria-label": "Image width in pixels",
 			},
@@ -141,10 +143,8 @@ export class ImageAdjustModal extends Modal {
 	}
 
 	private viewRoot(): HTMLElement | null {
-		return (
-			(this.doc()?.querySelector(
-				".bpf-paper .markdown-preview-view",
-			) as HTMLElement | null) ?? null
+		return htmlElement(
+			this.doc()?.querySelector(".bpf-paper .markdown-preview-view"),
 		);
 	}
 
@@ -384,7 +384,7 @@ img.bpf-img-sized.bpf-img-active {
 		await this.plugin.saveSettings();
 		const saved =
 			this.plugin.settings.imageLayouts?.[this.file.path] ??
-			({ images: [] } as NoteImageLayouts);
+			emptyNoteImageLayouts();
 		const callback = this.onApplied;
 		this.close();
 		callback(saved);

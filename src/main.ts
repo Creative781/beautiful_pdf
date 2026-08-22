@@ -261,6 +261,12 @@ function clampLevel(n: number, fallback: number): number {
 	return Math.min(6, Math.max(1, Math.round(n)));
 }
 
+function migrateLegacyString(value: unknown, fallback: string): string {
+	if (typeof value === "string") return value.trim();
+	if (value == null) return fallback;
+	return fallback;
+}
+
 /** Map old page-number + single header/footer fields onto the 3-slot model. */
 function migrateLegacyHeaderFooter(
 	raw: Record<string, unknown> | undefined,
@@ -286,24 +292,24 @@ function migrateLegacyHeaderFooter(
 	page.footerCenter = "";
 	page.footerRight = "";
 
-	const headerText = String(raw.headerText ?? "").trim();
+	const headerText = migrateLegacyString(raw.headerText, "");
 	if (headerText) {
-		const align = String(raw.headerAlign ?? "left");
+		const align = migrateLegacyString(raw.headerAlign, "left");
 		if (align === "center") page.headerCenter = headerText;
 		else if (align === "right") page.headerRight = headerText;
 		else page.headerLeft = headerText;
 	}
 
-	const footerText = String(raw.footerText ?? "").trim();
+	const footerText = migrateLegacyString(raw.footerText, "");
 	if (footerText) {
-		const align = String(raw.footerAlign ?? "center");
+		const align = migrateLegacyString(raw.footerAlign, "center");
 		if (align === "left") page.footerLeft = footerText;
 		else if (align === "right") page.footerRight = footerText;
 		else page.footerCenter = footerText;
 	}
 
-	const pn = String(raw.pageNumber ?? "none");
-	const fmt = String(raw.pageNumberFormat ?? "{page}")
+	const pn = migrateLegacyString(raw.pageNumber, "none");
+	const fmt = migrateLegacyString(raw.pageNumberFormat, "{page}")
 		.replace(/\{page\}/g, "{{page}}")
 		.replace(/\{pages\}/g, "{{pages}}");
 	if (pn === "top-center") {

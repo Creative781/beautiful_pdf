@@ -167,8 +167,9 @@ function placeholderToHtml(name: string, ctx: HeaderFooterContext): string {
 
 function frontmatterMap(fm: Record<string, unknown>): Record<string, string> {
 	const out: Record<string, string> = {};
-	for (const [k, v] of Object.entries(fm)) {
+	for (const k of Object.keys(fm)) {
 		if (k === "position") continue;
+		const v = fm[k];
 		if (v && typeof v === "object" && !Array.isArray(v)) continue;
 		const s = fmString(v);
 		if (!s) continue;
@@ -181,13 +182,16 @@ function frontmatterMap(fm: Record<string, unknown>): Record<string, string> {
 function fmString(value: unknown): string {
 	if (value == null) return "";
 	if (typeof value === "string") return value.trim();
+	if (typeof value === "number" || typeof value === "boolean") {
+		return String(value).trim();
+	}
 	if (Array.isArray(value)) {
 		return value
-			.map((v) => String(v).trim())
+			.map((v) => fmString(v))
 			.filter(Boolean)
 			.join(", ");
 	}
-	return String(value).trim();
+	return "";
 }
 
 function formatDay(d: Date): string {

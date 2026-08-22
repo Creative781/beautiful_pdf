@@ -157,9 +157,10 @@ function placeholderToHtml(name, ctx) {
 }
 function frontmatterMap(fm) {
   const out = {};
-  for (const [k, v] of Object.entries(fm)) {
+  for (const k of Object.keys(fm)) {
     if (k === "position")
       continue;
+    const v = fm[k];
     if (v && typeof v === "object" && !Array.isArray(v))
       continue;
     const s = fmString(v);
@@ -175,10 +176,13 @@ function fmString(value) {
     return "";
   if (typeof value === "string")
     return value.trim();
-  if (Array.isArray(value)) {
-    return value.map((v) => String(v).trim()).filter(Boolean).join(", ");
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value).trim();
   }
-  return String(value).trim();
+  if (Array.isArray(value)) {
+    return value.map((v) => fmString(v)).filter(Boolean).join(", ");
+  }
+  return "";
 }
 function formatDay(d) {
   if (Number.isNaN(d.getTime()))
@@ -709,7 +713,29 @@ function readElStyle(el2, key) {
   return el2.style.getPropertyValue(camelToKebab(key));
 }
 
+// src/dom-guards.ts
+function htmlElement(el2) {
+  return (el2 == null ? void 0 : el2.instanceOf(HTMLElement)) ? el2 : null;
+}
+function htmlTable(el2) {
+  return (el2 == null ? void 0 : el2.instanceOf(HTMLTableElement)) ? el2 : null;
+}
+function htmlTableCell(el2) {
+  return (el2 == null ? void 0 : el2.instanceOf(HTMLTableCellElement)) ? el2 : null;
+}
+function htmlTableRow(el2) {
+  return (el2 == null ? void 0 : el2.instanceOf(HTMLTableRowElement)) ? el2 : null;
+}
+function htmlTableCols(group) {
+  return Array.from(group.children).filter(
+    (c) => c.instanceOf(HTMLTableColElement)
+  );
+}
+
 // src/table-layout.ts
+function emptyNoteTableLayouts() {
+  return { tables: [] };
+}
 function tableColumnCount(table) {
   let max = 0;
   for (const row of Array.from(table.rows)) {
@@ -726,16 +752,16 @@ function ensureColgroup(table, colCount) {
   var _a;
   let group = table.querySelector("colgroup");
   if (!group) {
-    group = table.ownerDocument.createElement("colgroup");
+    group = table.createEl("colgroup");
     table.insertBefore(group, table.firstChild);
   }
   while (group.children.length > colCount) {
     (_a = group.lastElementChild) == null ? void 0 : _a.remove();
   }
   while (group.children.length < colCount) {
-    group.appendChild(table.ownerDocument.createElement("col"));
+    group.createEl("col");
   }
-  return Array.from(group.children);
+  return htmlTableCols(group);
 }
 function normalizePercents(values) {
   const cleaned = values.map((v) => Number.isFinite(v) && v > 0 ? v : 0);
@@ -775,7 +801,7 @@ function readTableBlockAlign(table) {
 function clearColumnPixelConstraints(table) {
   const group = table.querySelector("colgroup");
   if (group) {
-    for (const col of Array.from(group.children)) {
+    for (const col of htmlTableCols(group)) {
       clearElStyles(col, ["minWidth", "maxWidth", "width"]);
       col.removeAttribute("width");
     }
@@ -822,7 +848,7 @@ function setTablePixelHeight(table, heightPx) {
 }
 function layoutParent(table) {
   var _a;
-  return (_a = table.closest(".markdown-preview-view")) != null ? _a : table.parentElement;
+  return (_a = htmlElement(table.closest(".markdown-preview-view"))) != null ? _a : table.parentElement;
 }
 function measureTableWidthPct(table) {
   const parent = layoutParent(table);
@@ -974,7 +1000,7 @@ function applyNoteTableLayouts(root, layouts, contentWidthPx3) {
   );
   const tables = Array.from(root.querySelectorAll("table"));
   for (const layout of layouts.tables) {
-    const table = tables[layout.index];
+    const table = htmlTable(tables[layout.index]);
     if (!table)
       continue;
     table.classList.add("bpf-table-sized");
@@ -1065,8 +1091,8 @@ function tableHasCustomSizing(table) {
   return false;
 }
 function captureNoteTableLayouts(root) {
-  const tablesBefore = Array.from(
-    root.querySelectorAll("table")
+  const tablesBefore = Array.from(root.querySelectorAll("table")).filter(
+    (el2) => el2.instanceOf(HTMLTableElement)
   );
   const snapshots = [];
   tablesBefore.forEach((table, index) => {
@@ -1097,7 +1123,7 @@ function captureNoteTableLayouts(root) {
   stripEditorChrome(root);
   const tablesAfter = Array.from(root.querySelectorAll("table"));
   for (const snap of snapshots) {
-    const still = tablesAfter[snap.index];
+    const still = htmlTable(tablesAfter[snap.index]);
     if (still)
       markTableTouched(still);
   }
@@ -1137,11 +1163,19 @@ var IMAGE_SIZE_PRESETS = {
   large: 75,
   full: 100
 };
+function emptyNoteImageLayouts() {
+  return { images: [] };
+}
 function nearestSizePreset(widthPct) {
-  const entries = Object.entries(IMAGE_SIZE_PRESETS);
+  const presets = [
+    ["small", IMAGE_SIZE_PRESETS.small],
+    ["medium", IMAGE_SIZE_PRESETS.medium],
+    ["large", IMAGE_SIZE_PRESETS.large],
+    ["full", IMAGE_SIZE_PRESETS.full]
+  ];
   let best = "medium";
   let bestDist = Infinity;
-  for (const [id, pct] of entries) {
+  for (const [id, pct] of presets) {
     const d = Math.abs(pct - widthPct);
     if (d < bestDist) {
       bestDist = d;
@@ -1221,8 +1255,10 @@ function measureImageWidthPct(img, contentWidthPx3) {
     if (Number.isFinite(p) && p > 0)
       return Math.min(100, Math.max(5, p));
   }
-  const parent = (_a = img.closest(".markdown-preview-view")) != null ? _a : img.parentElement;
-  const pw = contentWidthPx3 || (parent instanceof HTMLElement ? parent.clientWidth : 0) || (parent instanceof HTMLElement ? parent.getBoundingClientRect().width : 0) || 1;
+  const parentEl = htmlElement(
+    (_a = img.closest(".markdown-preview-view")) != null ? _a : img.parentElement
+  );
+  const pw = contentWidthPx3 || (parentEl == null ? void 0 : parentEl.clientWidth) || (parentEl == null ? void 0 : parentEl.getBoundingClientRect().width) || 1;
   const styleW = readElStyle(img, "width");
   if (styleW.endsWith("%")) {
     const p = parseFloat(styleW);
@@ -1236,7 +1272,8 @@ function captureNoteImageLayouts(root, contentWidthPx3) {
   var _a, _b;
   const imgs = Array.from(root.querySelectorAll("img"));
   const parent = root.querySelector(".markdown-preview-view");
-  const pw = (_b = (_a = contentWidthPx3 != null ? contentWidthPx3 : parent instanceof HTMLElement ? parent.clientWidth : void 0) != null ? _a : root.clientWidth) != null ? _b : 800;
+  const parentEl = htmlElement(parent);
+  const pw = (_b = (_a = contentWidthPx3 != null ? contentWidthPx3 : parentEl == null ? void 0 : parentEl.clientWidth) != null ? _a : root.clientWidth) != null ? _b : 800;
   const snapshots = [];
   imgs.forEach((img, index) => {
     if (!imageHasCustomSizing(img))
@@ -1392,23 +1429,42 @@ function convertCanvases(el2) {
     }
   });
 }
+function blobUrlToDataUrl(blobUrl) {
+  return new Promise((resolve) => {
+    const img = createEl("img");
+    img.onload = () => {
+      try {
+        const canvas = createEl("canvas");
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL("image/png"));
+      } catch (e) {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = blobUrl;
+  });
+}
 async function rewriteInternalImages(app, file, el2) {
   const imgs = Array.from(el2.querySelectorAll("img"));
   await Promise.all(
     imgs.map(async (img) => {
-      var _a, _b;
+      var _a;
       const src = img.getAttribute("src");
       if (!src || src.startsWith("data:"))
         return;
       if (src.startsWith("blob:")) {
         try {
-          const res = await fetch(src);
-          const data = await res.arrayBuffer();
-          const mime = ((_a = res.headers.get("content-type")) == null ? void 0 : _a.split(";")[0]) || "image/png";
-          img.setAttribute(
-            "src",
-            `data:${mime};base64,${arrayBufferToBase64(data)}`
-          );
+          const dataUrl = await blobUrlToDataUrl(src);
+          if (dataUrl)
+            img.setAttribute("src", dataUrl);
         } catch (e) {
         }
         return;
@@ -1448,7 +1504,7 @@ async function rewriteInternalImages(app, file, el2) {
         if (res.status >= 400)
           return;
         const data = res.arrayBuffer;
-        const contentType = (_b = res.headers["content-type"]) != null ? _b : res.headers["Content-Type"];
+        const contentType = (_a = res.headers["content-type"]) != null ? _a : res.headers["Content-Type"];
         const mime = (contentType == null ? void 0 : contentType.split(";")[0]) || mimeFromExtension(current.split(".").pop() || "");
         img.setAttribute(
           "src",
@@ -2384,7 +2440,7 @@ var ImageAdjustModal = class extends import_obsidian3.Modal {
         type: "number",
         min: "40",
         step: "1",
-        placeholder: "px",
+        placeholder: "Width",
         title: "Width in pixels (relative to content column)",
         "aria-label": "Image width in pixels"
       }
@@ -2432,10 +2488,10 @@ var ImageAdjustModal = class extends import_obsidian3.Modal {
     return (_b = (_a = this.frameEl) == null ? void 0 : _a.contentDocument) != null ? _b : null;
   }
   viewRoot() {
-    var _a, _b;
-    return (_b = (_a = this.doc()) == null ? void 0 : _a.querySelector(
-      ".bpf-paper .markdown-preview-view"
-    )) != null ? _b : null;
+    var _a;
+    return htmlElement(
+      (_a = this.doc()) == null ? void 0 : _a.querySelector(".bpf-paper .markdown-preview-view")
+    );
   }
   imgs() {
     const root = this.viewRoot();
@@ -2661,7 +2717,7 @@ img.bpf-img-sized.bpf-img-active {
       );
     }
     await this.plugin.saveSettings();
-    const saved = (_b = (_a = this.plugin.settings.imageLayouts) == null ? void 0 : _a[this.file.path]) != null ? _b : { images: [] };
+    const saved = (_b = (_a = this.plugin.settings.imageLayouts) == null ? void 0 : _a[this.file.path]) != null ? _b : emptyNoteImageLayouts();
     const callback = this.onApplied;
     this.close();
     callback(saved);
@@ -2715,7 +2771,7 @@ var _TableAdjustModal = class extends import_obsidian4.Modal {
     contentEl.createEl("h2", { text: "Adjust tables" });
     const tip = contentEl.createDiv({ cls: "beautiful-pdf-tip" });
     tip.setText(
-      "Paper size and margins match the active profile (same as PDF). Drag cells to select; column/row borders resize neighbors; right/bottom edges resize the whole table. Then Apply & preview PDF."
+      "Paper size and margins match the active profile (same as PDF). Drag cells to select; column/row borders resize neighbors; right/bottom edges resize the whole table. Then apply & preview PDF."
     );
     const toolbar = contentEl.createDiv({ cls: "beautiful-pdf-toolbar" });
     const mk = (label, cls, fn) => {
@@ -2755,10 +2811,23 @@ var _TableAdjustModal = class extends import_obsidian4.Modal {
   }
   root() {
     var _a, _b;
-    return (_b = (_a = this.doc()) == null ? void 0 : _a.body) != null ? _b : null;
+    return htmlElement((_b = (_a = this.doc()) == null ? void 0 : _a.body) != null ? _b : null);
+  }
+  tablesInRoot() {
+    const root = this.root();
+    if (!root)
+      return [];
+    return Array.from(root.querySelectorAll("table")).filter(
+      (el2) => el2.instanceOf(HTMLTableElement)
+    );
+  }
+  paperView() {
+    var _a;
+    const el2 = (_a = this.doc()) == null ? void 0 : _a.querySelector(".bpf-paper .markdown-preview-view");
+    return el2.instanceOf(HTMLElement) ? el2 : null;
   }
   async loadHtml() {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
+    var _a, _b, _c, _d, _e, _f, _g;
     try {
       const profile = getActiveProfile(this.plugin.settings);
       const saved = (_b = (_a = this.plugin.settings.tableLayouts) == null ? void 0 : _a[this.file.path]) != null ? _b : null;
@@ -2939,14 +3008,12 @@ td.bpf-cell-selected, th.bpf-cell-selected {
         }
         this.frameEl.onload = () => resolve();
       });
-      const view = (_e = this.doc()) == null ? void 0 : _e.querySelector(
-        ".bpf-paper .markdown-preview-view"
-      );
-      if (view && ((_f = saved == null ? void 0 : saved.tables) == null ? void 0 : _f.length)) {
+      const view = this.paperView();
+      if (view && ((_e = saved == null ? void 0 : saved.tables) == null ? void 0 : _e.length)) {
         applyNoteTableLayouts(view, saved, view.clientWidth);
       }
       this.wireTables();
-      const n = (_h = (_g = this.doc()) == null ? void 0 : _g.querySelectorAll("table").length) != null ? _h : 0;
+      const n = (_g = (_f = this.doc()) == null ? void 0 : _f.querySelectorAll("table").length) != null ? _g : 0;
       const measured = (view == null ? void 0 : view.clientWidth) ? ` \xB7 editor ${Math.round(view.clientWidth)}px` : "";
       this.setStatus(
         n === 0 ? "No tables in this note" : `${n} table${n === 1 ? "" : "s"} \xB7 content ${contentWidthMm2.toFixed(0)}mm${measured}`
@@ -2980,20 +3047,21 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       var _a, _b;
       if (!this.dragSelect || this.resizing)
         return;
-      const cell = (_b = (_a = ev.target) == null ? void 0 : _a.closest) == null ? void 0 : _b.call(
-        _a,
-        "td, th"
+      const cell = htmlTableCell(
+        (_b = (_a = htmlElement(ev.target)) == null ? void 0 : _a.closest("td, th")) != null ? _b : null
       );
       if (!cell)
         return;
-      const table = cell.closest("table");
+      const table = htmlTable(cell.closest("table"));
       if (!table)
         return;
-      const tables2 = Array.from(root.querySelectorAll("table"));
+      const tables2 = this.tablesInRoot();
       const tableIndex = tables2.indexOf(table);
       if (tableIndex !== this.dragSelect.tableIndex)
         return;
-      const row = cell.parentElement;
+      const row = htmlTableRow(cell.parentElement);
+      if (!row)
+        return;
       this.selectRect(
         tableIndex,
         this.dragSelect.startRow,
@@ -3008,7 +3076,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     );
     const onBackgroundDown = (ev) => {
       var _a;
-      const t = ev.target;
+      const t = htmlElement(ev.target);
       if (!t)
         return;
       if ((_a = t.closest) == null ? void 0 : _a.call(t, "td, th, .bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom, button")) {
@@ -3020,32 +3088,35 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     this.detachFns.push(
       () => doc.removeEventListener("mousedown", onBackgroundDown)
     );
-    const tables = Array.from(root.querySelectorAll("table"));
+    const tables = this.tablesInRoot();
     tables.forEach((table, tableIndex) => {
-      var _a;
-      const hint = doc.createElement("div");
-      hint.className = "bpf-table-hint";
-      hint.textContent = `Table ${tableIndex + 1}`;
-      (_a = table.parentElement) == null ? void 0 : _a.insertBefore(hint, table);
+      const parent = table.parentElement;
+      if (parent) {
+        const hint = parent.createDiv({
+          cls: "bpf-table-hint",
+          text: `Table ${tableIndex + 1}`
+        });
+        parent.insertBefore(hint, table);
+      }
       const onCellDown = (ev) => {
-        var _a2, _b, _c, _d;
+        var _a, _b, _c;
         if (this.resizing)
           return;
-        const cell = (_b = (_a2 = ev.target) == null ? void 0 : _a2.closest) == null ? void 0 : _b.call(
-          _a2,
-          "td, th"
+        const cell = htmlTableCell(
+          (_b = (_a = htmlElement(ev.target)) == null ? void 0 : _a.closest("td, th")) != null ? _b : null
         );
         if (!cell || !table.contains(cell))
           return;
-        if ((_d = (_c = ev.target).closest) == null ? void 0 : _d.call(
-          _c,
+        if ((_c = htmlElement(ev.target)) == null ? void 0 : _c.closest(
           ".bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom"
         )) {
           return;
         }
         ev.preventDefault();
         this.activeTableIndex = tableIndex;
-        const row = cell.parentElement;
+        const row = htmlTableRow(cell.parentElement);
+        if (!row)
+          return;
         this.dragSelect = {
           tableIndex,
           startRow: row.rowIndex,
@@ -3096,7 +3167,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     root.querySelectorAll(".bpf-cell-selected").forEach((el2) => {
       el2.classList.remove("bpf-cell-selected");
     });
-    const tables = Array.from(root.querySelectorAll("table"));
+    const tables = this.tablesInRoot();
     for (const key of this.selected) {
       const [ti, ri, ci] = key.split(":").map(Number);
       const table = tables[ti];
@@ -3105,29 +3176,23 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     }
   }
   ensureWrap(table) {
-    var _a, _b;
     const parent = table.parentElement;
     if (parent == null ? void 0 : parent.classList.contains("bpf-table-wrap")) {
-      const align2 = (_a = table.dataset.bpfAlign) != null ? _a : "left";
+      const align2 = readTableAlign(table);
       parent.dataset.align = align2;
       return parent;
     }
-    const doc = this.doc();
-    if (!doc || !parent)
+    if (!parent)
       return table;
-    const wrap = doc.createElement("div");
-    wrap.className = "bpf-table-wrap";
-    const align = (_b = table.dataset.bpfAlign) != null ? _b : "left";
+    const wrap = parent.createDiv({ cls: "bpf-table-wrap" });
+    const align = readTableAlign(table);
     wrap.dataset.align = align;
     parent.insertBefore(wrap, table);
     wrap.appendChild(table);
     return wrap;
   }
   setActiveTableAlign(align) {
-    const root = this.root();
-    if (!root)
-      return;
-    const tables = Array.from(root.querySelectorAll("table"));
+    const tables = this.tablesInRoot();
     const table = tables[this.activeTableIndex];
     if (!table) {
       new import_obsidian4.Notice("Select a table first (click any cell).");
@@ -3166,7 +3231,9 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     const edge = _TableAdjustModal.EDGE;
     wrap.querySelectorAll(".bpf-col-handle").forEach((node) => {
       var _a2;
-      const el2 = node;
+      const el2 = htmlElement(node);
+      if (!el2)
+        return;
       const col = Number(el2.dataset.col);
       const cell = (_a2 = table.rows[0]) == null ? void 0 : _a2.cells[col];
       if (!cell)
@@ -3183,7 +3250,9 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       });
     });
     wrap.querySelectorAll(".bpf-row-handle").forEach((node) => {
-      const el2 = node;
+      const el2 = htmlElement(node);
+      if (!el2)
+        return;
       const rowIndex = Number(el2.dataset.row);
       const row = table.rows[rowIndex];
       if (!row)
@@ -3199,9 +3268,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
         bottom: "auto"
       });
     });
-    const right = wrap.querySelector(
-      ".bpf-edge-handle-right"
-    );
+    const right = htmlElement(wrap.querySelector(".bpf-edge-handle-right"));
     if (right) {
       applyElStyles(right, {
         left: `${left + Math.max(0, w - edge)}px`,
@@ -3212,9 +3279,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
         bottom: "auto"
       });
     }
-    const bottom = wrap.querySelector(
-      ".bpf-edge-handle-bottom"
-    );
+    const bottom = htmlElement(wrap.querySelector(".bpf-edge-handle-bottom"));
     if (bottom) {
       applyElStyles(bottom, {
         left: `${left}px`,
@@ -3234,11 +3299,13 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     this.clearHandles(table);
     const n = tableColumnCount(table);
     for (let i = 0; i < n - 1; i++) {
-      const handle = doc.createElement("div");
-      handle.className = "bpf-col-handle";
-      handle.dataset.col = String(i);
-      handle.title = "Drag to resize columns";
-      wrap.appendChild(handle);
+      const handle = wrap.createDiv({
+        cls: "bpf-col-handle",
+        attr: {
+          "data-col": String(i),
+          title: "Drag to resize columns"
+        }
+      });
       const onDown = (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -3288,11 +3355,13 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     }
     const rowCount = table.rows.length;
     for (let i = 0; i < rowCount - 1; i++) {
-      const handle = doc.createElement("div");
-      handle.className = "bpf-row-handle";
-      handle.dataset.row = String(i);
-      handle.title = "Drag to resize rows";
-      wrap.appendChild(handle);
+      const handle = wrap.createDiv({
+        cls: "bpf-row-handle",
+        attr: {
+          "data-row": String(i),
+          title: "Drag to resize rows"
+        }
+      });
       const onDown = (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -3352,10 +3421,10 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       handle.addEventListener("mousedown", onDown);
       this.detachFns.push(() => handle.removeEventListener("mousedown", onDown));
     }
-    const rightEdge = doc.createElement("div");
-    rightEdge.className = "bpf-edge-handle-right";
-    rightEdge.title = "Drag to resize table width";
-    wrap.appendChild(rightEdge);
+    const rightEdge = wrap.createDiv({
+      cls: "bpf-edge-handle-right",
+      attr: { title: "Drag to resize table width" }
+    });
     {
       const onDown = (ev) => {
         ev.preventDefault();
@@ -3403,10 +3472,10 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       rightEdge.addEventListener("mousedown", onDown);
       this.detachFns.push(() => rightEdge.removeEventListener("mousedown", onDown));
     }
-    const bottomEdge = doc.createElement("div");
-    bottomEdge.className = "bpf-edge-handle-bottom";
-    bottomEdge.title = "Drag to resize table height";
-    wrap.appendChild(bottomEdge);
+    const bottomEdge = wrap.createDiv({
+      cls: "bpf-edge-handle-bottom",
+      attr: { title: "Drag to resize table height" }
+    });
     {
       const onDown = (ev) => {
         ev.preventDefault();
@@ -3458,10 +3527,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     this.syncHandlePositions(table);
   }
   selectedInActiveTable() {
-    const root = this.root();
-    if (!root)
-      return null;
-    const tables = Array.from(root.querySelectorAll("table"));
+    const tables = this.tablesInRoot();
     const table = tables[this.activeTableIndex];
     if (!table)
       return null;
@@ -3522,10 +3588,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     this.setStatus(`Table ${this.activeTableIndex + 1} \xB7 row heights equalized`);
   }
   reinstallHandlesForActive() {
-    const root = this.root();
-    if (!root)
-      return;
-    const tables = Array.from(root.querySelectorAll("table"));
+    const tables = this.tablesInRoot();
     const table = tables[this.activeTableIndex];
     if (!table)
       return;
@@ -3533,10 +3596,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     this.installResizeHandles(table, this.activeTableIndex);
   }
   resetActiveTable() {
-    const root = this.root();
-    if (!root)
-      return;
-    const tables = Array.from(root.querySelectorAll("table"));
+    const tables = this.tablesInRoot();
     const table = tables[this.activeTableIndex];
     if (!table)
       return;
@@ -3546,10 +3606,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     this.setStatus(`Table ${this.activeTableIndex + 1} \xB7 reset`);
   }
   clearAllSizing() {
-    const root = this.root();
-    if (!root)
-      return;
-    const tables = Array.from(root.querySelectorAll("table"));
+    const tables = this.tablesInRoot();
     tables.forEach((table, i) => {
       resetTableSizing(table);
       this.clearHandles(table);
@@ -3580,7 +3637,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       );
     }
     await this.plugin.saveSettings();
-    const saved = (_b = (_a = this.plugin.settings.tableLayouts) == null ? void 0 : _a[this.file.path]) != null ? _b : { tables: [] };
+    const saved = (_b = (_a = this.plugin.settings.tableLayouts) == null ? void 0 : _a[this.file.path]) != null ? _b : emptyNoteTableLayouts();
     const callback = this.onApplied;
     this.close();
     callback(saved);
@@ -3592,9 +3649,12 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 var TableAdjustModal = _TableAdjustModal;
 /** Hit-target thickness; visual line is drawn thin via ::after. */
 TableAdjustModal.EDGE = 10;
+function readTableAlign(table) {
+  return readTableBlockAlign(table);
+}
 function layoutParentWidth(table) {
   var _a;
-  const parent = (_a = table.closest(".markdown-preview-view")) != null ? _a : table.parentElement;
+  const parent = (_a = htmlElement(table.closest(".markdown-preview-view"))) != null ? _a : table.parentElement;
   if (!parent)
     return 0;
   const style = getComputedStyle(parent);
@@ -3807,7 +3867,7 @@ function getNodeRequire2() {
 }
 function getQueryLocalFonts() {
   const fn = window.queryLocalFonts;
-  return typeof fn === "function" ? fn.bind(window) : null;
+  return typeof fn === "function" ? fn : null;
 }
 function getPlatform() {
   try {
@@ -3836,10 +3896,11 @@ function getExecFile() {
 function execFileUtf8(execFile, file, args, opts) {
   return new Promise((resolve, reject) => {
     execFile(file, args, opts, (err, stdout) => {
-      if (err)
-        reject(err);
-      else
+      if (err) {
+        reject(err instanceof Error ? err : new Error("execFile failed"));
+      } else {
         resolve(typeof stdout === "string" ? stdout : "");
+      }
     });
   });
 }
@@ -3977,7 +4038,7 @@ async function listFromPlatform() {
 async function listSystemFontFamilies() {
   if (cachedFamilies)
     return cachedFamilies;
-  if (loading)
+  if (loading !== null)
     return loading;
   const promise = (async () => {
     const [fromApi, fromOs] = await Promise.all([
@@ -4058,6 +4119,14 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
     this.plugin = plugin;
   }
   display() {
+    this.refreshSettings();
+  }
+  /** Declarative stub — custom tab UI is built in refreshSettings(). */
+  getSettingDefinitions() {
+    return [];
+  }
+  /** Full settings redraw (internal — do not call deprecated display() recursively). */
+  refreshSettings() {
     const { containerEl } = this;
     const scroll = this.captureScroll();
     containerEl.empty();
@@ -4069,7 +4138,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
   /** Obsidian settings scroll pane — Windows resets this on full redraw. */
   captureScroll() {
     const pane = this.containerEl.closest(".vertical-tab-content");
-    if (pane instanceof HTMLElement) {
+    if (pane.instanceOf(HTMLElement)) {
       return { el: pane, top: pane.scrollTop };
     }
     let el2 = this.containerEl;
@@ -4103,7 +4172,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
     const section = containerEl.createDiv({
       cls: "beautiful-pdf-section beautiful-pdf-profile-picker"
     });
-    new import_obsidian7.Setting(section).setName("Document Profile").setHeading();
+    new import_obsidian7.Setting(section).setName("Document profile").setHeading();
     const chips = section.createDiv({ cls: "beautiful-pdf-profile-chips" });
     for (const p of this.plugin.settings.profiles) {
       const chip = chips.createEl("button", {
@@ -4115,7 +4184,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
         void (async () => {
           this.plugin.settings.activeProfileId = p.id;
           await this.plugin.saveSettings();
-          this.display();
+          this.refreshSettings();
         })();
       };
     }
@@ -4137,7 +4206,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
       this.plugin.settings.profiles.push(profile);
       this.plugin.settings.activeProfileId = profile.id;
       await this.plugin.saveSettings();
-      this.display();
+      this.refreshSettings();
     });
     mkAction("Duplicate", "", async () => {
       const active = getActiveProfile(this.plugin.settings);
@@ -4145,7 +4214,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
       this.plugin.settings.profiles.push(copy);
       this.plugin.settings.activeProfileId = copy.id;
       await this.plugin.saveSettings();
-      this.display();
+      this.refreshSettings();
     });
     mkAction("Delete", "is-danger", async () => {
       if (this.plugin.settings.profiles.length <= 1)
@@ -4156,7 +4225,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
       );
       this.plugin.settings.activeProfileId = this.plugin.settings.profiles[0].id;
       await this.plugin.saveSettings();
-      this.display();
+      this.refreshSettings();
     });
   }
   /** Page / Markdown / Add-ons belong to the selected profile. */
@@ -4205,7 +4274,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
         if (this.ui.settingsTab === item.id)
           return;
         this.ui.settingsTab = item.id;
-        this.display();
+        this.refreshSettings();
       };
     }
     const panel = containerEl.createDiv({ cls: "beautiful-pdf-tab-panel" });
@@ -4239,7 +4308,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
             void (async () => {
               page.pageSize = v;
               await this.plugin.saveSettings();
-              this.display();
+              this.refreshSettings();
             })();
           });
         });
@@ -4453,7 +4522,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
             void (async () => {
               special.styleOrderedListsAsHeadings = v;
               await this.plugin.saveSettings();
-              this.display();
+              this.refreshSettings();
             })();
           })
         );
@@ -4467,7 +4536,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
               void (async () => {
                 special[key] = Number(v);
                 await this.plugin.saveSettings();
-                this.display();
+                this.refreshSettings();
               })();
             });
           });
@@ -4486,12 +4555,12 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
         this.ui.pageBreakOpen = open;
       },
       (body) => {
-        new import_obsidian7.Setting(body).setName("Enable").setDesc("Turn %%pdf-pagebreak%% markers into PDF page breaks").addToggle(
+        new import_obsidian7.Setting(body).setName("Enable").setDesc("Turn %%PDF-pagebreak%% markers into PDF page breaks").addToggle(
           (tg) => tg.setValue(special.enablePageBreaks).onChange((v) => {
             void (async () => {
               special.enablePageBreaks = v;
               await this.plugin.saveSettings();
-              this.display();
+              this.refreshSettings();
             })();
           })
         );
@@ -4519,7 +4588,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
             void (async () => {
               special.enableTableAdjust = v;
               await this.plugin.saveSettings();
-              this.display();
+              this.refreshSettings();
             })();
           })
         );
@@ -4545,7 +4614,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
             void (async () => {
               special.enableImageAdjust = v;
               await this.plugin.saveSettings();
-              this.display();
+              this.refreshSettings();
             })();
           })
         );
@@ -4571,7 +4640,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
             void (async () => {
               special.enablePlaceholders = v;
               await this.plugin.saveSettings();
-              this.display();
+              this.refreshSettings();
             })();
           })
         );
@@ -4626,7 +4695,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
     });
     head.onclick = () => {
       this.ui.elementOpen[key] = !expanded;
-      this.display();
+      this.refreshSettings();
     };
     if (!expanded)
       return;
@@ -4816,7 +4885,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
     setting.addText((t) => {
       textComp = t;
       t.inputEl.addClass("beautiful-pdf-hex-input");
-      t.setPlaceholder("#1a1a1a");
+      t.setPlaceholder("#1A1a1a");
       t.setValue(value).onChange((v) => {
         void (async () => {
           await onChange(v);
@@ -4904,7 +4973,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
     head.createSpan({ cls: "beautiful-pdf-fold-chevron", text: open ? "\u25BE" : "\u25B8" });
     head.onclick = () => {
       setOpen(!open);
-      this.display();
+      this.refreshSettings();
     };
     if (open) {
       const body = box.createDiv({ cls: "beautiful-pdf-fold-body" });
@@ -5167,8 +5236,14 @@ function clampLevel(n, fallback) {
     return fallback;
   return Math.min(6, Math.max(1, Math.round(n)));
 }
+function migrateLegacyString(value, fallback) {
+  if (typeof value === "string")
+    return value.trim();
+  if (value == null)
+    return fallback;
+  return fallback;
+}
 function migrateLegacyHeaderFooter(raw, page) {
-  var _a, _b, _c, _d, _e, _f;
   if (!raw)
     return;
   const hasNew = raw.headerLeft != null || raw.headerCenter != null || raw.headerRight != null || raw.footerLeft != null || raw.footerCenter != null || raw.footerRight != null;
@@ -5182,9 +5257,9 @@ function migrateLegacyHeaderFooter(raw, page) {
   page.footerLeft = "";
   page.footerCenter = "";
   page.footerRight = "";
-  const headerText = String((_a = raw.headerText) != null ? _a : "").trim();
+  const headerText = migrateLegacyString(raw.headerText, "");
   if (headerText) {
-    const align = String((_b = raw.headerAlign) != null ? _b : "left");
+    const align = migrateLegacyString(raw.headerAlign, "left");
     if (align === "center")
       page.headerCenter = headerText;
     else if (align === "right")
@@ -5192,9 +5267,9 @@ function migrateLegacyHeaderFooter(raw, page) {
     else
       page.headerLeft = headerText;
   }
-  const footerText = String((_c = raw.footerText) != null ? _c : "").trim();
+  const footerText = migrateLegacyString(raw.footerText, "");
   if (footerText) {
-    const align = String((_d = raw.footerAlign) != null ? _d : "center");
+    const align = migrateLegacyString(raw.footerAlign, "center");
     if (align === "left")
       page.footerLeft = footerText;
     else if (align === "right")
@@ -5202,8 +5277,8 @@ function migrateLegacyHeaderFooter(raw, page) {
     else
       page.footerCenter = footerText;
   }
-  const pn = String((_e = raw.pageNumber) != null ? _e : "none");
-  const fmt = String((_f = raw.pageNumberFormat) != null ? _f : "{page}").replace(/\{page\}/g, "{{page}}").replace(/\{pages\}/g, "{{pages}}");
+  const pn = migrateLegacyString(raw.pageNumber, "none");
+  const fmt = migrateLegacyString(raw.pageNumberFormat, "{page}").replace(/\{page\}/g, "{{page}}").replace(/\{pages\}/g, "{{pages}}");
   if (pn === "top-center") {
     page.headerCenter = joinSlot(page.headerCenter, fmt);
   } else if (pn === "bottom-center") {

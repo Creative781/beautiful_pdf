@@ -51,9 +51,10 @@ function getNodeRequire(): NodeRequireFn | null {
 }
 
 function getQueryLocalFonts(): QueryLocalFonts | null {
-	const fn = (window as Window & { queryLocalFonts?: QueryLocalFonts })
-		.queryLocalFonts;
-	return typeof fn === "function" ? fn.bind(window) : null;
+	const fn: QueryLocalFonts | undefined = (
+		window as Window & { queryLocalFonts?: QueryLocalFonts }
+	).queryLocalFonts;
+	return typeof fn === "function" ? fn : null;
 }
 
 function getPlatform(): string | null {
@@ -86,8 +87,11 @@ function execFileUtf8(
 ): Promise<string> {
 	return new Promise((resolve, reject) => {
 		execFile(file, args, opts, (err, stdout) => {
-			if (err) reject(err);
-			else resolve(typeof stdout === "string" ? stdout : "");
+			if (err) {
+				reject(err instanceof Error ? err : new Error("execFile failed"));
+			} else {
+				resolve(typeof stdout === "string" ? stdout : "");
+			}
 		});
 	});
 }
@@ -235,9 +239,9 @@ async function listFromPlatform(): Promise<string[]> {
 /** Unique installed font family names (Chromium API + OS enumeration). */
 export async function listSystemFontFamilies(): Promise<string[]> {
 	if (cachedFamilies) return cachedFamilies;
-	if (loading) return loading;
+	if (loading !== null) return loading;
 
-	const promise = (async () => {
+	const promise: Promise<string[]> = (async () => {
 		const [fromApi, fromOs] = await Promise.all([
 			listFromQueryLocalFonts(),
 			listFromPlatform(),

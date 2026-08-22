@@ -1,4 +1,5 @@
 import { applyElStyles, clearElStyles, readElStyle } from "./dom-style";
+import { htmlElement } from "./dom-guards";
 
 /** Per-image size/alignment saved from the optional Adjust images step. */
 export type ImageAlign = "left" | "center" | "right";
@@ -29,10 +30,15 @@ export function emptyNoteImageLayouts(): NoteImageLayouts {
 }
 
 export function nearestSizePreset(widthPct: number): ImageSizePreset {
-	const entries = Object.entries(IMAGE_SIZE_PRESETS) as [ImageSizePreset, number][];
+	const presets: [ImageSizePreset, number][] = [
+		["small", IMAGE_SIZE_PRESETS.small],
+		["medium", IMAGE_SIZE_PRESETS.medium],
+		["large", IMAGE_SIZE_PRESETS.large],
+		["full", IMAGE_SIZE_PRESETS.full],
+	];
 	let best: ImageSizePreset = "medium";
 	let bestDist = Infinity;
-	for (const [id, pct] of entries) {
+	for (const [id, pct] of presets) {
 		const d = Math.abs(pct - widthPct);
 		if (d < bestDist) {
 			bestDist = d;
@@ -126,12 +132,13 @@ export function measureImageWidthPct(
 		const p = parseFloat(stored);
 		if (Number.isFinite(p) && p > 0) return Math.min(100, Math.max(5, p));
 	}
-	const parent =
-		img.closest(".markdown-preview-view") ?? img.parentElement;
+	const parentEl = htmlElement(
+		img.closest(".markdown-preview-view") ?? img.parentElement,
+	);
 	const pw =
 		contentWidthPx ||
-		(parent instanceof HTMLElement ? parent.clientWidth : 0) ||
-		(parent instanceof HTMLElement ? parent.getBoundingClientRect().width : 0) ||
+		parentEl?.clientWidth ||
+		parentEl?.getBoundingClientRect().width ||
 		1;
 	const styleW = readElStyle(img, "width");
 	if (styleW.endsWith("%")) {
@@ -148,9 +155,10 @@ export function captureNoteImageLayouts(
 ): NoteImageLayouts {
 	const imgs = Array.from(root.querySelectorAll("img"));
 	const parent = root.querySelector(".markdown-preview-view");
+	const parentEl = htmlElement(parent);
 	const pw =
 		contentWidthPx ??
-		(parent instanceof HTMLElement ? parent.clientWidth : undefined) ??
+		parentEl?.clientWidth ??
 		root.clientWidth ??
 		800;
 	const snapshots: ImageLayout[] = [];

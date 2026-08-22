@@ -7,10 +7,12 @@ import {
 	applyNoteTableLayouts,
 	applyTableBlockAlign,
 	captureNoteTableLayouts,
+	emptyNoteTableLayouts,
 	lockTablePixelWidth,
 	markTableTouched,
 	measureColWidthsPct,
 	normalizePercents,
+	readTableBlockAlign,
 	resetTableSizing,
 	setTablePixelHeight,
 	setTablePixelWidth,
@@ -18,7 +20,13 @@ import {
 	type NoteTableLayouts,
 	type TableAlign,
 } from "./table-layout";
-import { applyElStyles, clearElStyles, readElStyle } from "./dom-style";
+import { applyElStyles, clearElStyles } from "./dom-style";
+import {
+	htmlElement,
+	htmlTable,
+	htmlTableCell,
+	htmlTableRow,
+} from "./dom-guards";
 import type { PageSettings } from "./types";
 
 type CellKey = string; // `${tableIndex}:${row}:${col}`
@@ -66,7 +74,7 @@ export class TableAdjustModal extends Modal {
 
 		const tip = contentEl.createDiv({ cls: "beautiful-pdf-tip" });
 		tip.setText(
-			"Paper size and margins match the active profile (same as PDF). Drag cells to select; column/row borders resize neighbors; right/bottom edges resize the whole table. Then Apply & preview PDF.",
+			"Paper size and margins match the active profile (same as PDF). Drag cells to select; column/row borders resize neighbors; right/bottom edges resize the whole table. Then apply & preview PDF.",
 		);
 
 		const toolbar = contentEl.createDiv({ cls: "beautiful-pdf-toolbar" });
@@ -113,7 +121,20 @@ export class TableAdjustModal extends Modal {
 	}
 
 	private root(): HTMLElement | null {
-		return this.doc()?.body ?? null;
+		return htmlElement(this.doc()?.body ?? null);
+	}
+
+	private tablesInRoot(): HTMLTableElement[] {
+		const root = this.root();
+		if (!root) return [];
+		return Array.from(root.querySelectorAll("table")).filter(
+			(el): el is HTMLTableElement => el.instanceOf(HTMLTableElement),
+		);
+	}
+
+	private paperView(): HTMLElement | null {
+		const el = this.doc()?.querySelector(".bpf-paper .markdown-preview-view");
+		return el.instanceOf(HTMLElement) ? el : null;
 	}
 
 	private async loadHtml(): Promise<void> {
@@ -305,9 +326,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 				this.frameEl.onload = () => resolve();
 			});
 
-			const view = this.doc()?.querySelector(
-				".bpf-paper .markdown-preview-view",
-			) as HTMLElement | null;
+			const view = this.paperView();
 			if (view && saved?.tables?.length) {
 				// Use the live content-box width (= PDF content width in CSS px).
 				applyNoteTableLayouts(view, saved, view.clientWidth);
@@ -352,16 +371,17 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 
 		const onDocMouseMove = (ev: MouseEvent) => {
 			if (!this.dragSelect || this.resizing) return;
-			const cell = (ev.target as HTMLElement | null)?.closest?.(
-				"td, th",
-			) as HTMLTableCellElement | null;
+			const cell = htmlTableCell(
+				htmlElement(ev.target)?.closest("td, th") ?? null,
+			);
 			if (!cell) return;
-			const table = cell.closest("table") as HTMLTableElement | null;
+			const table = htmlTable(cell.closest("table"));
 			if (!table) return;
-			const tables = Array.from(root.querySelectorAll("table")) as HTMLTableElement[];
+			const tables = this.tablesInRoot();
 			const tableIndex = tables.indexOf(table);
 			if (tableIndex !== this.dragSelect.tableIndex) return;
-			const row = cell.parentElement as HTMLTableRowElement;
+			const row = htmlTableRow(cell.parentElement);
+			if (!row) return;
 			this.selectRect(
 				tableIndex,
 				this.dragSelect.startRow,
@@ -376,7 +396,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		);
 
 		const onBackgroundDown = (ev: MouseEvent) => {
-			const t = ev.target as HTMLElement | null;
+			const t = htmlElement(ev.target);
 			if (!t) return;
 			if (t.closest?.("td, th, .bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom, button")) {
 				return;
@@ -388,27 +408,34 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			doc.removeEventListener("mousedown", onBackgroundDown),
 		);
 
-		const tables = Array.from(root.querySelectorAll("table")) as HTMLTableElement[];
+		const tables = this.tablesInRoot();
 		tables.forEach((table, tableIndex) => {
-			const hint = doc.createElement("div");
-			hint.className = "bpf-table-hint";
-			hint.textContent = `Table ${tableIndex + 1}`;
-			table.parentElement?.insertBefore(hint, table);
+			const parent = table.parentElement;
+			if (parent) {
+				const hint = parent.createDiv({
+					cls: "bpf-table-hint",
+					text: `Table ${tableIndex + 1}`,
+				});
+				parent.insertBefore(hint, table);
+			}
 
 			const onCellDown = (ev: MouseEvent) => {
 				if (this.resizing) return;
-				const cell = (ev.target as HTMLElement | null)?.closest?.(
-					"td, th",
-				) as HTMLTableCellElement | null;
+				const cell = htmlTableCell(
+					htmlElement(ev.target)?.closest("td, th") ?? null,
+				);
 				if (!cell || !table.contains(cell)) return;
-				if ((ev.target as HTMLElement).closest?.(
-					".bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom",
-				)) {
+				if (
+					htmlElement(ev.target)?.closest(
+						".bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom",
+					)
+				) {
 					return;
 				}
 				ev.preventDefault();
 				this.activeTableIndex = tableIndex;
-				const row = cell.parentElement as HTMLTableRowElement;
+				const row = htmlTableRow(cell.parentElement);
+				if (!row) return;
 				this.dragSelect = {
 					tableIndex,
 					startRow: row.rowIndex,
@@ -467,7 +494,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		root.querySelectorAll(".bpf-cell-selected").forEach((el) => {
 			el.classList.remove("bpf-cell-selected");
 		});
-		const tables = Array.from(root.querySelectorAll("table")) as HTMLTableElement[];
+		const tables = this.tablesInRoot();
 		for (const key of this.selected) {
 			const [ti, ri, ci] = key.split(":").map(Number);
 			const table = tables[ti];
@@ -479,15 +506,13 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 	private ensureWrap(table: HTMLTableElement): HTMLElement {
 		const parent = table.parentElement;
 		if (parent?.classList.contains("bpf-table-wrap")) {
-			const align = (table.dataset.bpfAlign as TableAlign | undefined) ?? "left";
+			const align = readTableAlign(table);
 			parent.dataset.align = align;
 			return parent;
 		}
-		const doc = this.doc();
-		if (!doc || !parent) return table;
-		const wrap = doc.createElement("div");
-		wrap.className = "bpf-table-wrap";
-		const align = (table.dataset.bpfAlign as TableAlign | undefined) ?? "left";
+		if (!parent) return table;
+		const wrap = parent.createDiv({ cls: "bpf-table-wrap" });
+		const align = readTableAlign(table);
 		wrap.dataset.align = align;
 		parent.insertBefore(wrap, table);
 		wrap.appendChild(table);
@@ -495,9 +520,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 	}
 
 	private setActiveTableAlign(align: TableAlign): void {
-		const root = this.root();
-		if (!root) return;
-		const tables = Array.from(root.querySelectorAll("table")) as HTMLTableElement[];
+		const tables = this.tablesInRoot();
 		const table = tables[this.activeTableIndex];
 		if (!table) {
 			new Notice("Select a table first (click any cell).");
@@ -544,7 +567,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		const edge = TableAdjustModal.EDGE;
 
 		wrap.querySelectorAll(".bpf-col-handle").forEach((node) => {
-			const el = node as HTMLElement;
+			const el = htmlElement(node);
+			if (!el) return;
 			const col = Number(el.dataset.col);
 			const cell = table.rows[0]?.cells[col];
 			if (!cell) return;
@@ -561,7 +585,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		});
 
 		wrap.querySelectorAll(".bpf-row-handle").forEach((node) => {
-			const el = node as HTMLElement;
+			const el = htmlElement(node);
+			if (!el) return;
 			const rowIndex = Number(el.dataset.row);
 			const row = table.rows[rowIndex];
 			if (!row) return;
@@ -577,9 +602,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			});
 		});
 
-		const right = wrap.querySelector(
-			".bpf-edge-handle-right",
-		) as HTMLElement | null;
+		const right = htmlElement(wrap.querySelector(".bpf-edge-handle-right"));
 		if (right) {
 			applyElStyles(right, {
 				left: `${left + Math.max(0, w - edge)}px`,
@@ -591,9 +614,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			});
 		}
 
-		const bottom = wrap.querySelector(
-			".bpf-edge-handle-bottom",
-		) as HTMLElement | null;
+		const bottom = htmlElement(wrap.querySelector(".bpf-edge-handle-bottom"));
 		if (bottom) {
 			applyElStyles(bottom, {
 				left: `${left}px`,
@@ -616,11 +637,13 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 
 		// Inner borders: redistribute adjacent columns; keep overall width
 		for (let i = 0; i < n - 1; i++) {
-			const handle = doc.createElement("div");
-			handle.className = "bpf-col-handle";
-			handle.dataset.col = String(i);
-			handle.title = "Drag to resize columns";
-			wrap.appendChild(handle);
+			const handle = wrap.createDiv({
+				cls: "bpf-col-handle",
+				attr: {
+					"data-col": String(i),
+					title: "Drag to resize columns",
+				},
+			});
 
 			const onDown = (ev: MouseEvent) => {
 				ev.preventDefault();
@@ -677,11 +700,13 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		// Inner row borders: redistribute adjacent row heights; keep overall height
 		const rowCount = table.rows.length;
 		for (let i = 0; i < rowCount - 1; i++) {
-			const handle = doc.createElement("div");
-			handle.className = "bpf-row-handle";
-			handle.dataset.row = String(i);
-			handle.title = "Drag to resize rows";
-			wrap.appendChild(handle);
+			const handle = wrap.createDiv({
+				cls: "bpf-row-handle",
+				attr: {
+					"data-row": String(i),
+					title: "Drag to resize rows",
+				},
+			});
 
 			const onDown = (ev: MouseEvent) => {
 				ev.preventDefault();
@@ -746,10 +771,10 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		}
 
 		// Right edge: overall table width
-		const rightEdge = doc.createElement("div");
-		rightEdge.className = "bpf-edge-handle-right";
-		rightEdge.title = "Drag to resize table width";
-		wrap.appendChild(rightEdge);
+		const rightEdge = wrap.createDiv({
+			cls: "bpf-edge-handle-right",
+			attr: { title: "Drag to resize table width" },
+		});
 		{
 			const onDown = (ev: MouseEvent) => {
 				ev.preventDefault();
@@ -804,10 +829,10 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		}
 
 		// Bottom edge: overall table height (centered on the bottom border line)
-		const bottomEdge = doc.createElement("div");
-		bottomEdge.className = "bpf-edge-handle-bottom";
-		bottomEdge.title = "Drag to resize table height";
-		wrap.appendChild(bottomEdge);
+		const bottomEdge = wrap.createDiv({
+			cls: "bpf-edge-handle-bottom",
+			attr: { title: "Drag to resize table height" },
+		});
 		{
 			const onDown = (ev: MouseEvent) => {
 				ev.preventDefault();
@@ -867,9 +892,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		cols: Set<number>;
 		rows: Set<number>;
 	} | null {
-		const root = this.root();
-		if (!root) return null;
-		const tables = Array.from(root.querySelectorAll("table")) as HTMLTableElement[];
+		const tables = this.tablesInRoot();
 		const table = tables[this.activeTableIndex];
 		if (!table) return null;
 		const cols = new Set<number>();
@@ -926,9 +949,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 	}
 
 	private reinstallHandlesForActive(): void {
-		const root = this.root();
-		if (!root) return;
-		const tables = Array.from(root.querySelectorAll("table")) as HTMLTableElement[];
+		const tables = this.tablesInRoot();
 		const table = tables[this.activeTableIndex];
 		if (!table) return;
 		this.clearHandles(table);
@@ -936,9 +957,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 	}
 
 	private resetActiveTable(): void {
-		const root = this.root();
-		if (!root) return;
-		const tables = Array.from(root.querySelectorAll("table")) as HTMLTableElement[];
+		const tables = this.tablesInRoot();
 		const table = tables[this.activeTableIndex];
 		if (!table) return;
 		resetTableSizing(table);
@@ -948,9 +967,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 	}
 
 	private clearAllSizing(): void {
-		const root = this.root();
-		if (!root) return;
-		const tables = Array.from(root.querySelectorAll("table")) as HTMLTableElement[];
+		const tables = this.tablesInRoot();
 		tables.forEach((table, i) => {
 			resetTableSizing(table);
 			this.clearHandles(table);
@@ -984,7 +1001,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		await this.plugin.saveSettings();
 		const saved =
 			this.plugin.settings.tableLayouts?.[this.file.path] ??
-			({ tables: [] } as NoteTableLayouts);
+			emptyNoteTableLayouts();
 		const callback = this.onApplied;
 		this.close();
 		callback(saved);
@@ -996,10 +1013,13 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 	}
 }
 
+function readTableAlign(table: HTMLTableElement): TableAlign {
+	return readTableBlockAlign(table);
+}
+
 function layoutParentWidth(table: HTMLTableElement): number {
 	const parent =
-		(table.closest(".markdown-preview-view") as HTMLElement | null) ??
-		table.parentElement;
+		htmlElement(table.closest(".markdown-preview-view")) ?? table.parentElement;
 	if (!parent) return 0;
 	const style = getComputedStyle(parent);
 	const padX =

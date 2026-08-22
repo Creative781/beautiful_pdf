@@ -168,6 +168,31 @@ function convertCanvases(el: HTMLElement): void {
 	});
 }
 
+/** Convert a blob: URL to a data URL without fetch (print webview safe). */
+function blobUrlToDataUrl(blobUrl: string): Promise<string | null> {
+	return new Promise((resolve) => {
+		const img = createEl("img");
+		img.onload = () => {
+			try {
+				const canvas = createEl("canvas");
+				canvas.width = img.naturalWidth || img.width;
+				canvas.height = img.naturalHeight || img.height;
+				const ctx = canvas.getContext("2d");
+				if (!ctx) {
+					resolve(null);
+					return;
+				}
+				ctx.drawImage(img, 0, 0);
+				resolve(canvas.toDataURL("image/png"));
+			} catch {
+				resolve(null);
+			}
+		};
+		img.onerror = () => resolve(null);
+		img.src = blobUrl;
+	});
+}
+
 /** Resolve vault images and embed them as data URLs for a blank print webview. */
 async function rewriteInternalImages(
 	app: App,
@@ -182,14 +207,8 @@ async function rewriteInternalImages(
 
 			if (src.startsWith("blob:")) {
 				try {
-					const res = await fetch(src);
-					const data = await res.arrayBuffer();
-					const mime =
-						res.headers.get("content-type")?.split(";")[0] || "image/png";
-					img.setAttribute(
-						"src",
-						`data:${mime};base64,${arrayBufferToBase64(data)}`,
-					);
+					const dataUrl = await blobUrlToDataUrl(src);
+					if (dataUrl) img.setAttribute("src", dataUrl);
 				} catch {
 					/* keep original */
 				}

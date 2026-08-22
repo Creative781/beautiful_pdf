@@ -1,5 +1,6 @@
 /** Per-table column/row sizing saved from the optional layout step. */
 import { applyElStyles, clearElStyles, readElStyle } from "./dom-style";
+import { htmlElement, htmlTable, htmlTableCols } from "./dom-guards";
 export type TableAlign = "left" | "center" | "right";
 
 export interface TableLayout {
@@ -48,16 +49,16 @@ export function ensureColgroup(
 ): HTMLTableColElement[] {
 	let group = table.querySelector("colgroup");
 	if (!group) {
-		group = table.ownerDocument.createElement("colgroup");
+		group = table.createEl("colgroup");
 		table.insertBefore(group, table.firstChild);
 	}
 	while (group.children.length > colCount) {
 		group.lastElementChild?.remove();
 	}
 	while (group.children.length < colCount) {
-		group.appendChild(table.ownerDocument.createElement("col"));
+		group.createEl("col");
 	}
-	return Array.from(group.children) as HTMLTableColElement[];
+	return htmlTableCols(group);
 }
 
 export function normalizePercents(values: number[]): number[] {
@@ -110,7 +111,7 @@ export function readTableBlockAlign(table: HTMLTableElement): TableAlign {
 export function clearColumnPixelConstraints(table: HTMLTableElement): void {
 	const group = table.querySelector("colgroup");
 	if (group) {
-		for (const col of Array.from(group.children) as HTMLTableColElement[]) {
+		for (const col of htmlTableCols(group)) {
 			clearElStyles(col, ["minWidth", "maxWidth", "width"]);
 			col.removeAttribute("width");
 		}
@@ -165,10 +166,7 @@ export function setTablePixelHeight(table: HTMLTableElement, heightPx: number): 
 }
 
 function layoutParent(table: HTMLTableElement): HTMLElement | null {
-	return (
-		(table.closest(".markdown-preview-view") as HTMLElement | null) ??
-		table.parentElement
-	);
+	return htmlElement(table.closest(".markdown-preview-view")) ?? table.parentElement;
 }
 
 /** Table width as % of the note content column (padding excluded). */
@@ -380,7 +378,7 @@ export function applyNoteTableLayouts(
 	);
 	const tables = Array.from(root.querySelectorAll("table"));
 	for (const layout of layouts.tables) {
-		const table = tables[layout.index] as HTMLTableElement | undefined;
+		const table = htmlTable(tables[layout.index]);
 		if (!table) continue;
 		table.classList.add("bpf-table-sized");
 		table.setAttribute("data-bpf-i", String(layout.index));
@@ -480,9 +478,9 @@ function tableHasCustomSizing(table: HTMLTableElement): boolean {
  * then strips chrome so leftover editor nodes are not counted as tables.
  */
 export function captureNoteTableLayouts(root: HTMLElement): NoteTableLayouts {
-	const tablesBefore = Array.from(
-		root.querySelectorAll("table"),
-	) as HTMLTableElement[];
+	const tablesBefore = Array.from(root.querySelectorAll("table")).filter(
+		(el): el is HTMLTableElement => el.instanceOf(HTMLTableElement),
+	);
 	const snapshots: TableLayout[] = [];
 	tablesBefore.forEach((table, index) => {
 		if (!tableHasCustomSizing(table)) return;
@@ -515,8 +513,8 @@ export function captureNoteTableLayouts(root: HTMLElement): NoteTableLayouts {
 	// Re-resolve indices after unwrap (should match; re-map by order among remaining tables)
 	const tablesAfter = Array.from(root.querySelectorAll("table"));
 	for (const snap of snapshots) {
-		const still = tablesAfter[snap.index];
-		if (still) markTableTouched(still as HTMLTableElement);
+		const still = htmlTable(tablesAfter[snap.index]);
+		if (still) markTableTouched(still);
 	}
 	return { tables: snapshots };
 }
