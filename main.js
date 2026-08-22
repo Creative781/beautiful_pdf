@@ -984,7 +984,36 @@ function readStoredColPct(table) {
 function storeColPct(table, pct) {
   table.dataset.bpfColPct = JSON.stringify(normalizePercents(pct));
 }
+function readRowHeightsPxFromDom(table) {
+  return Array.from(table.rows).map((row) => {
+    const rowH = parseFloat(readElStyle(row, "height"));
+    if (Number.isFinite(rowH) && rowH > 0)
+      return Math.round(rowH);
+    for (const cell of Array.from(row.cells)) {
+      const cellH = parseFloat(readElStyle(cell, "height"));
+      if (Number.isFinite(cellH) && cellH > 0)
+        return Math.round(cellH);
+    }
+    return Math.max(16, Math.round(row.getBoundingClientRect().height));
+  });
+}
+function applyRowHeightPx(row, heightPx) {
+  const h = `${Math.max(16, Math.round(heightPx))}px`;
+  applyElStyles(row, { height: h });
+  for (const cell of Array.from(row.cells)) {
+    applyElStyles(cell, {
+      height: h,
+      boxSizing: "border-box"
+    });
+  }
+}
 function measureRowHeightsPx(table) {
+  const fromDom = readRowHeightsPxFromDom(table);
+  const hasInline = Array.from(table.rows).some(
+    (row) => !!readElStyle(row, "height") || Array.from(row.cells).some((cell) => !!readElStyle(cell, "height"))
+  );
+  if (hasInline)
+    return fromDom;
   const raw = table.dataset.bpfRowPx;
   if (raw) {
     try {
@@ -997,12 +1026,7 @@ function measureRowHeightsPx(table) {
     } catch (e) {
     }
   }
-  return Array.from(table.rows).map((row) => {
-    const h = parseFloat(readElStyle(row, "height"));
-    if (Number.isFinite(h) && h > 0)
-      return Math.round(h);
-    return Math.max(16, Math.round(row.getBoundingClientRect().height));
-  });
+  return fromDom;
 }
 function storeRowHeightsPx(table, heights) {
   const rounded = heights.map((h) => Math.max(16, Math.round(h)));
@@ -1011,7 +1035,7 @@ function storeRowHeightsPx(table, heights) {
     const row = table.rows[i];
     const h = rounded[i];
     if (row && h != null)
-      applyElStyles(row, { height: `${h}px` });
+      applyRowHeightPx(row, h);
   }
 }
 function measureColWidthsPct(table) {
@@ -1225,7 +1249,7 @@ function applyNoteTableLayouts(root, layouts, contentWidthPx3) {
         rows[i].setAttribute("data-bpf-r", String(i));
         const h = layout.rowHeightsPx[i];
         if (h != null && h > 0) {
-          applyElStyles(rows[i], { height: `${Math.round(h)}px` });
+          applyRowHeightPx(rows[i], Math.round(h));
         }
       }
     }
@@ -1313,6 +1337,9 @@ function resetTableSizing(table) {
   for (const row of Array.from(table.rows)) {
     clearElStyles(row, ["height"]);
     row.removeAttribute("data-bpf-r");
+    for (const cell of Array.from(row.cells)) {
+      clearElStyles(cell, ["height", "boxSizing"]);
+    }
   }
 }
 
@@ -3550,9 +3577,9 @@ td.bpf-cell-selected, th.bpf-cell-selected {
           const rowA = table.rows[above];
           const rowB = table.rows[below];
           if (rowA)
-            applyElStyles(rowA, { height: `${Math.round(a)}px` });
+            applyRowHeightPx(rowA, a);
           if (rowB)
-            applyElStyles(rowB, { height: `${Math.round(b)}px` });
+            applyRowHeightPx(rowB, b);
           this.syncHandlePositions(table);
         };
         const onUp = () => {
@@ -3648,7 +3675,6 @@ td.bpf-cell-selected, th.bpf-cell-selected {
         markTableTouched(table);
         const startH = table.getBoundingClientRect().height;
         const startY = ev.clientY;
-        const rowCount2 = Math.max(1, table.rows.length);
         const startRowHeights = Array.from(table.rows).map(
           (r) => r.getBoundingClientRect().height
         );
@@ -3656,14 +3682,22 @@ td.bpf-cell-selected, th.bpf-cell-selected {
           const newH = Math.max(32, startH + (mv.clientY - startY));
           setTablePixelHeight(table, newH);
           const scale = newH / Math.max(1, startH);
-          for (let ri = 0; ri < rowCount2; ri++) {
-            const row = table.rows[ri];
-            if (!row)
-              continue;
-            applyElStyles(row, {
-              height: `${Math.max(16, Math.round(startRowHeights[ri] * scale))}px`
-            });
-          }
+          const heights = Array.from(table.rows).map((row, ri) => {
+            const h = parseFloat(readElStyle(row, "height"));
+            if (Number.isFinite(h) && h > 0)
+              return Math.round(h);
+            const cell = row.cells[0];
+            if (cell) {
+              const ch = parseFloat(readElStyle(cell, "height"));
+              if (Number.isFinite(ch) && ch > 0)
+                return Math.round(ch);
+            }
+            return Math.max(
+              16,
+              Math.round(startRowHeights[ri] * scale)
+            );
+          });
+          storeRowHeightsPx(table, heights);
           this.syncHandlePositions(table);
         };
         const onUp = () => {
@@ -3734,6 +3768,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     this.setStatus(`Table ${this.activeTableIndex + 1} \xB7 column widths equalized`);
   }
   equalizeSelectedRows() {
+    var _a;
     const ctx = this.selectedInActiveTable();
     if (!ctx || ctx.rows.size < 2) {
       new import_obsidian4.Notice("Select two or more cells in different rows first.");
@@ -3742,20 +3777,17 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     const { table, rows } = ctx;
     markTableTouched(table);
     const indices = Array.from(rows).sort((a, b) => a - b);
-    let maxH = 0;
+    const heights = readRowHeightsPxFromDom(table);
+    let maxH = 16;
     for (const i of indices) {
-      const row = table.rows[i];
-      if (!row)
-        continue;
-      maxH = Math.max(maxH, row.getBoundingClientRect().height);
+      maxH = Math.max(maxH, (_a = heights[i]) != null ? _a : 16);
     }
+    maxH = Math.max(16, Math.round(maxH));
     for (const i of indices) {
-      const row = table.rows[i];
-      if (row)
-        applyElStyles(row, { height: `${Math.round(maxH)}px` });
+      heights[i] = maxH;
     }
     clearElStyles(table, ["height"]);
-    storeRowHeightsPx(table, measureRowHeightsPx(table));
+    storeRowHeightsPx(table, heights);
     this.syncHandlePositions(table);
     this.setStatus(`Table ${this.activeTableIndex + 1} \xB7 row heights equalized`);
   }

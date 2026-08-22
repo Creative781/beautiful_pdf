@@ -210,8 +210,43 @@ function storeColPct(table: HTMLTableElement, pct: number[]): void {
 	table.dataset.bpfColPct = JSON.stringify(normalizePercents(pct));
 }
 
+/** Read row heights from live DOM (ignores saved dataset). */
+export function readRowHeightsPxFromDom(table: HTMLTableElement): number[] {
+	return Array.from(table.rows).map((row) => {
+		const rowH = parseFloat(readElStyle(row, "height"));
+		if (Number.isFinite(rowH) && rowH > 0) return Math.round(rowH);
+		for (const cell of Array.from(row.cells)) {
+			const cellH = parseFloat(readElStyle(cell, "height"));
+			if (Number.isFinite(cellH) && cellH > 0) return Math.round(cellH);
+		}
+		return Math.max(16, Math.round(row.getBoundingClientRect().height));
+	});
+}
+
+/** Apply row height on the row and its cells (tr-only height is unreliable). */
+export function applyRowHeightPx(
+	row: HTMLTableRowElement,
+	heightPx: number,
+): void {
+	const h = `${Math.max(16, Math.round(heightPx))}px`;
+	applyElStyles(row, { height: h });
+	for (const cell of Array.from(row.cells)) {
+		applyElStyles(cell, {
+			height: h,
+			boxSizing: "border-box",
+		});
+	}
+}
+
 /** Read per-row heights from saved state or inline styles. */
 export function measureRowHeightsPx(table: HTMLTableElement): number[] {
+	const fromDom = readRowHeightsPxFromDom(table);
+	const hasInline = Array.from(table.rows).some(
+		(row) =>
+			!!readElStyle(row, "height") ||
+			Array.from(row.cells).some((cell) => !!readElStyle(cell, "height")),
+	);
+	if (hasInline) return fromDom;
 	const raw = table.dataset.bpfRowPx;
 	if (raw) {
 		try {
@@ -225,11 +260,7 @@ export function measureRowHeightsPx(table: HTMLTableElement): number[] {
 			/* fall through */
 		}
 	}
-	return Array.from(table.rows).map((row) => {
-		const h = parseFloat(readElStyle(row, "height"));
-		if (Number.isFinite(h) && h > 0) return Math.round(h);
-		return Math.max(16, Math.round(row.getBoundingClientRect().height));
-	});
+	return fromDom;
 }
 
 export function storeRowHeightsPx(
@@ -241,7 +272,7 @@ export function storeRowHeightsPx(
 	for (let i = 0; i < table.rows.length; i++) {
 		const row = table.rows[i];
 		const h = rounded[i];
-		if (row && h != null) applyElStyles(row, { height: `${h}px` });
+		if (row && h != null) applyRowHeightPx(row, h);
 	}
 }
 
@@ -515,7 +546,7 @@ export function applyNoteTableLayouts(
 				rows[i].setAttribute("data-bpf-r", String(i));
 				const h = layout.rowHeightsPx[i];
 				if (h != null && h > 0) {
-					applyElStyles(rows[i], { height: `${Math.round(h)}px` });
+					applyRowHeightPx(rows[i], Math.round(h));
 				}
 			}
 		}
@@ -610,5 +641,8 @@ export function resetTableSizing(table: HTMLTableElement): void {
 	for (const row of Array.from(table.rows)) {
 		clearElStyles(row, ["height"]);
 		row.removeAttribute("data-bpf-r");
+		for (const cell of Array.from(row.cells)) {
+			clearElStyles(cell, ["height", "boxSizing"]);
+		}
 	}
 }
