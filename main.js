@@ -327,7 +327,7 @@ function applyHrPreview(sample, style) {
   sample.addClass(`is-hr-${preset}`);
   sample.empty();
   const line = sample.createDiv({ cls: "beautiful-pdf-hr-line" });
-  line.style.setProperty("--bpf-hr-color", style.color || "#cccccc");
+  line.setCssProps({ "--bpf-hr-color": style.color || "#cccccc" });
 }
 
 // src/util.ts
@@ -686,6 +686,29 @@ function orderedListAsHeadingCss(profile) {
   return lines.join("\n");
 }
 
+// src/dom-style.ts
+function camelToKebab(key) {
+  return key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
+}
+function applyElStyles(el2, styles) {
+  const obs = el2;
+  if (typeof obs.setCssStyles === "function") {
+    obs.setCssStyles(styles);
+    return;
+  }
+  for (const [key, value] of Object.entries(styles)) {
+    el2.style.setProperty(camelToKebab(key), value);
+  }
+}
+function clearElStyles(el2, keys) {
+  for (const key of keys) {
+    el2.style.removeProperty(camelToKebab(key));
+  }
+}
+function readElStyle(el2, key) {
+  return el2.style.getPropertyValue(camelToKebab(key));
+}
+
 // src/table-layout.ts
 function tableColumnCount(table) {
   let max = 0;
@@ -732,14 +755,11 @@ function applyTableBlockAlign(table, align) {
   const a = align === "center" || align === "right" ? align : "left";
   table.dataset.bpfAlign = a;
   if (a === "center") {
-    table.style.marginLeft = "auto";
-    table.style.marginRight = "auto";
+    applyElStyles(table, { marginLeft: "auto", marginRight: "auto" });
   } else if (a === "right") {
-    table.style.marginLeft = "auto";
-    table.style.marginRight = "0";
+    applyElStyles(table, { marginLeft: "auto", marginRight: "0" });
   } else {
-    table.style.marginLeft = "0";
-    table.style.marginRight = "auto";
+    applyElStyles(table, { marginLeft: "0", marginRight: "auto" });
   }
   const wrap = table.parentElement;
   if (wrap == null ? void 0 : wrap.classList.contains("bpf-table-wrap")) {
@@ -756,49 +776,49 @@ function clearColumnPixelConstraints(table) {
   const group = table.querySelector("colgroup");
   if (group) {
     for (const col of Array.from(group.children)) {
-      col.style.minWidth = "";
-      col.style.maxWidth = "";
+      clearElStyles(col, ["minWidth", "maxWidth", "width"]);
       col.removeAttribute("width");
-      if (col.style.width && !col.style.width.endsWith("%")) {
-        col.style.width = "";
-      }
     }
   }
   for (const row of Array.from(table.rows)) {
     for (const cell of Array.from(row.cells)) {
-      cell.style.width = "";
-      cell.style.minWidth = "";
-      cell.style.maxWidth = "";
+      clearElStyles(cell, ["width", "minWidth", "maxWidth"]);
       cell.removeAttribute("width");
     }
   }
 }
 function lockTablePixelWidth(table) {
   markTableTouched(table);
-  const existing = table.style.width;
+  const existing = readElStyle(table, "width");
   if (existing && existing !== "100%" && existing !== "auto") {
     clearColumnPixelConstraints(table);
     return;
   }
   const w = Math.round(table.getBoundingClientRect().width);
   const px = Math.max(40, w);
-  table.style.width = `${px}px`;
-  table.style.minWidth = `${px}px`;
-  table.style.maxWidth = `${px}px`;
+  applyElStyles(table, {
+    width: `${px}px`,
+    minWidth: `${px}px`,
+    maxWidth: `${px}px`
+  });
   clearColumnPixelConstraints(table);
 }
 function setTablePixelWidth(table, widthPx) {
   markTableTouched(table);
   const px = Math.max(40, Math.round(widthPx));
-  table.style.width = `${px}px`;
-  table.style.minWidth = `${px}px`;
-  table.style.maxWidth = `${px}px`;
-  table.style.tableLayout = "fixed";
+  applyElStyles(table, {
+    width: `${px}px`,
+    minWidth: `${px}px`,
+    maxWidth: `${px}px`,
+    tableLayout: "fixed"
+  });
   clearColumnPixelConstraints(table);
 }
 function setTablePixelHeight(table, heightPx) {
   markTableTouched(table);
-  table.style.height = `${Math.max(24, Math.round(heightPx))}px`;
+  applyElStyles(table, {
+    height: `${Math.max(24, Math.round(heightPx))}px`
+  });
 }
 function layoutParent(table) {
   var _a;
@@ -824,7 +844,7 @@ function measureColWidthsPct(table) {
   const tableW = Math.max(1, table.getBoundingClientRect().width);
   const widths = [];
   for (let i = 0; i < n; i++) {
-    const styleW = cols[i].style.width;
+    const styleW = readElStyle(cols[i], "width");
     if (styleW.endsWith("%")) {
       const p = parseFloat(styleW);
       widths.push(Number.isFinite(p) ? p : 0);
@@ -861,9 +881,8 @@ function applyColWidthsPct(table, colWidthsPct) {
   );
   const cols = ensureColgroup(table, n);
   for (let i = 0; i < n; i++) {
-    cols[i].style.width = `${pct[i]}%`;
-    cols[i].style.minWidth = "";
-    cols[i].style.maxWidth = "";
+    applyElStyles(cols[i], { width: `${pct[i]}%` });
+    clearElStyles(cols[i], ["minWidth", "maxWidth"]);
   }
 }
 function padOrTrim(arr, n, fill) {
@@ -960,16 +979,20 @@ function applyNoteTableLayouts(root, layouts, contentWidthPx3) {
       continue;
     table.classList.add("bpf-table-sized");
     table.setAttribute("data-bpf-i", String(layout.index));
-    table.style.tableLayout = "fixed";
-    table.style.boxSizing = "border-box";
+    applyElStyles(table, {
+      tableLayout: "fixed",
+      boxSizing: "border-box"
+    });
     const tablePx = layout.widthPct != null && layout.widthPct > 0 ? Math.max(
       40,
       Math.min(100, Math.max(5, layout.widthPct)) / 100 * parentW
     ) : Math.max(40, table.getBoundingClientRect().width || parentW);
     const tablePxR = Math.round(tablePx);
-    table.style.width = `${tablePxR}px`;
-    table.style.minWidth = `${tablePxR}px`;
-    table.style.maxWidth = `${tablePxR}px`;
+    applyElStyles(table, {
+      width: `${tablePxR}px`,
+      minWidth: `${tablePxR}px`,
+      maxWidth: `${tablePxR}px`
+    });
     if ((_b = layout.colWidthsPct) == null ? void 0 : _b.length) {
       const n = Math.max(tableColumnCount(table), layout.colWidthsPct.length);
       const pct = normalizePercents(
@@ -979,9 +1002,11 @@ function applyNoteTableLayouts(root, layouts, contentWidthPx3) {
       const colPx = pct.map((p) => Math.max(8, Math.round(p / 100 * tablePx)));
       for (let i = 0; i < n; i++) {
         const w = `${colPx[i]}px`;
-        cols[i].style.width = w;
-        cols[i].style.minWidth = w;
-        cols[i].style.maxWidth = w;
+        applyElStyles(cols[i], {
+          width: w,
+          minWidth: w,
+          maxWidth: w
+        });
         cols[i].setAttribute("width", String(colPx[i]));
       }
       for (const row of Array.from(table.rows)) {
@@ -994,10 +1019,12 @@ function applyNoteTableLayouts(root, layouts, contentWidthPx3) {
           }
           if (spanPx > 0) {
             const w = `${spanPx}px`;
-            cell.style.width = w;
-            cell.style.minWidth = w;
-            cell.style.maxWidth = w;
-            cell.style.boxSizing = "border-box";
+            applyElStyles(cell, {
+              width: w,
+              minWidth: w,
+              maxWidth: w,
+              boxSizing: "border-box"
+            });
             cell.setAttribute("width", String(spanPx));
           }
           colAt += span;
@@ -1010,12 +1037,12 @@ function applyNoteTableLayouts(root, layouts, contentWidthPx3) {
         rows[i].setAttribute("data-bpf-r", String(i));
         const h = layout.rowHeightsPx[i];
         if (h != null && h > 0) {
-          rows[i].style.height = `${Math.round(h)}px`;
+          applyElStyles(rows[i], { height: `${Math.round(h)}px` });
         }
       }
     }
     if (layout.heightPx != null && layout.heightPx > 0) {
-      table.style.height = `${Math.round(layout.heightPx)}px`;
+      applyElStyles(table, { height: `${Math.round(layout.heightPx)}px` });
     }
     if (layout.align) {
       applyTableBlockAlign(table, layout.align);
@@ -1029,11 +1056,11 @@ function tableHasCustomSizing(table) {
     return true;
   if (table.dataset.bpfAlign && table.dataset.bpfAlign !== "left")
     return true;
-  if (table.style.width || table.style.height)
+  if (readElStyle(table, "width") || readElStyle(table, "height"))
     return true;
   if (table.querySelector("colgroup"))
     return true;
-  if (Array.from(table.rows).some((r) => !!r.style.height))
+  if (Array.from(table.rows).some((r) => !!readElStyle(r, "height")))
     return true;
   return false;
 }
@@ -1046,10 +1073,12 @@ function captureNoteTableLayouts(root) {
     if (!tableHasCustomSizing(table))
       return;
     const colWidthsPct = measureColWidthsPct(table);
-    const hasRowOverride = Array.from(table.rows).some((r) => !!r.style.height);
-    const heightPx = parseFloat(table.style.height);
+    const hasRowOverride = Array.from(table.rows).some(
+      (r) => !!readElStyle(r, "height")
+    );
+    const heightPx = parseFloat(readElStyle(table, "height"));
     const rowHeightsPx = Array.from(table.rows).map((row) => {
-      const h = parseFloat(row.style.height);
+      const h = parseFloat(readElStyle(row, "height"));
       if (Number.isFinite(h) && h > 0)
         return h;
       return Math.round(row.getBoundingClientRect().height);
@@ -1078,13 +1107,15 @@ function resetTableSizing(table) {
   table.classList.remove("bpf-table-sized");
   delete table.dataset.bpfTouched;
   table.removeAttribute("data-bpf-i");
-  table.style.width = "";
-  table.style.height = "";
-  table.style.minWidth = "";
-  table.style.maxWidth = "";
-  table.style.tableLayout = "";
-  table.style.marginLeft = "";
-  table.style.marginRight = "";
+  clearElStyles(table, [
+    "width",
+    "height",
+    "minWidth",
+    "maxWidth",
+    "tableLayout",
+    "marginLeft",
+    "marginRight"
+  ]);
   delete table.dataset.bpfAlign;
   const wrap = table.parentElement;
   if (wrap == null ? void 0 : wrap.classList.contains("bpf-table-wrap")) {
@@ -1094,7 +1125,7 @@ function resetTableSizing(table) {
   const group = table.querySelector("colgroup");
   group == null ? void 0 : group.remove();
   for (const row of Array.from(table.rows)) {
-    row.style.height = "";
+    clearElStyles(row, ["height"]);
     row.removeAttribute("data-bpf-r");
   }
 }
@@ -1126,20 +1157,15 @@ function markImageTouched(img) {
 function applyImageLayout(img, layout) {
   markImageTouched(img);
   const pct = Math.min(100, Math.max(5, layout.widthPct));
-  img.style.width = `${pct}%`;
-  img.style.maxWidth = `${pct}%`;
-  img.style.height = "auto";
-  img.style.display = "block";
-  if (layout.align === "center") {
-    img.style.marginLeft = "auto";
-    img.style.marginRight = "auto";
-  } else if (layout.align === "right") {
-    img.style.marginLeft = "auto";
-    img.style.marginRight = "0";
-  } else {
-    img.style.marginLeft = "0";
-    img.style.marginRight = "auto";
-  }
+  img.dataset.bpfWidthPct = String(pct);
+  const margins = layout.align === "center" ? { marginLeft: "auto", marginRight: "auto" } : layout.align === "right" ? { marginLeft: "auto", marginRight: "0" } : { marginLeft: "0", marginRight: "auto" };
+  applyElStyles(img, {
+    width: `${pct}%`,
+    maxWidth: `${pct}%`,
+    height: "auto",
+    display: "block",
+    ...margins
+  });
   img.dataset.bpfAlign = layout.align;
 }
 function applyNoteImageLayouts(root, layouts) {
@@ -1183,15 +1209,21 @@ function imageHasCustomSizing(img) {
     return true;
   if (img.classList.contains("bpf-img-sized"))
     return true;
-  if (img.style.width || img.dataset.bpfAlign)
+  if (img.dataset.bpfWidthPct || img.dataset.bpfAlign)
     return true;
   return false;
 }
 function measureImageWidthPct(img, contentWidthPx3) {
   var _a;
+  const stored = img.dataset.bpfWidthPct;
+  if (stored) {
+    const p = parseFloat(stored);
+    if (Number.isFinite(p) && p > 0)
+      return Math.min(100, Math.max(5, p));
+  }
   const parent = (_a = img.closest(".markdown-preview-view")) != null ? _a : img.parentElement;
-  const pw = contentWidthPx3 || (parent == null ? void 0 : parent.clientWidth) || (parent == null ? void 0 : parent.getBoundingClientRect().width) || 1;
-  const styleW = img.style.width;
+  const pw = contentWidthPx3 || (parent instanceof HTMLElement ? parent.clientWidth : 0) || (parent instanceof HTMLElement ? parent.getBoundingClientRect().width : 0) || 1;
+  const styleW = readElStyle(img, "width");
   if (styleW.endsWith("%")) {
     const p = parseFloat(styleW);
     if (Number.isFinite(p) && p > 0)
@@ -1204,12 +1236,12 @@ function captureNoteImageLayouts(root, contentWidthPx3) {
   var _a, _b;
   const imgs = Array.from(root.querySelectorAll("img"));
   const parent = root.querySelector(".markdown-preview-view");
-  const pw = (_b = (_a = contentWidthPx3 != null ? contentWidthPx3 : parent == null ? void 0 : parent.clientWidth) != null ? _a : root.clientWidth) != null ? _b : 800;
+  const pw = (_b = (_a = contentWidthPx3 != null ? contentWidthPx3 : parent instanceof HTMLElement ? parent.clientWidth : void 0) != null ? _a : root.clientWidth) != null ? _b : 800;
   const snapshots = [];
   imgs.forEach((img, index) => {
     if (!imageHasCustomSizing(img))
       return;
-    const align = img.dataset.bpfAlign || inferAlign(img);
+    const align = readImageAlign(img);
     snapshots.push({
       index,
       widthPct: measureImageWidthPct(img, pw),
@@ -1218,9 +1250,12 @@ function captureNoteImageLayouts(root, contentWidthPx3) {
   });
   return { images: snapshots };
 }
-function inferAlign(img) {
-  const ml = img.style.marginLeft;
-  const mr = img.style.marginRight;
+function readImageAlign(img) {
+  const raw = img.dataset.bpfAlign;
+  if (raw === "center" || raw === "right" || raw === "left")
+    return raw;
+  const ml = readElStyle(img, "marginLeft");
+  const mr = readElStyle(img, "marginRight");
   if (ml === "auto" && mr === "auto")
     return "center";
   if (ml === "auto")
@@ -1231,13 +1266,16 @@ function resetImageSizing(img) {
   img.classList.remove("bpf-img-sized");
   delete img.dataset.bpfImgTouched;
   delete img.dataset.bpfAlign;
+  delete img.dataset.bpfWidthPct;
   img.removeAttribute("data-bpf-img");
-  img.style.width = "";
-  img.style.maxWidth = "";
-  img.style.height = "";
-  img.style.display = "";
-  img.style.marginLeft = "";
-  img.style.marginRight = "";
+  clearElStyles(img, [
+    "width",
+    "maxWidth",
+    "height",
+    "display",
+    "marginLeft",
+    "marginRight"
+  ]);
 }
 
 // src/render.ts
@@ -2530,7 +2568,7 @@ img.bpf-img-sized.bpf-img-active {
       img2.classList.toggle("bpf-img-active", j === i);
     });
     const img = imgs[i];
-    const pct = parseFloat(img.style.width) || IMAGE_SIZE_PRESETS.medium;
+    const pct = measureImageWidthPct(img, this.contentWidthPx());
     const align = img.dataset.bpfAlign || "center";
     const preset = nearestSizePreset(pct);
     const px = Math.round(pct / 100 * this.contentWidthPx());
@@ -2580,7 +2618,10 @@ img.bpf-img-sized.bpf-img-active {
     const img = this.activeImg();
     if (!img)
       return;
-    const pct = parseFloat(img.style.width) || IMAGE_SIZE_PRESETS[nearestSizePreset(55)];
+    const pct = measureImageWidthPct(
+      img,
+      this.contentWidthPx()
+    );
     applyImageLayout(img, { widthPct: pct, align });
     this.selectIndex(this.activeIndex);
   }
@@ -3132,12 +3173,14 @@ td.bpf-cell-selected, th.bpf-cell-selected {
         return;
       const cr = cell.getBoundingClientRect();
       const borderX = cr.right - wr.left;
-      el2.style.left = `${borderX - edge / 2}px`;
-      el2.style.top = `${top}px`;
-      el2.style.width = `${edge}px`;
-      el2.style.height = `${h}px`;
-      el2.style.right = "auto";
-      el2.style.bottom = "auto";
+      applyElStyles(el2, {
+        left: `${borderX - edge / 2}px`,
+        top: `${top}px`,
+        width: `${edge}px`,
+        height: `${h}px`,
+        right: "auto",
+        bottom: "auto"
+      });
     });
     wrap.querySelectorAll(".bpf-row-handle").forEach((node) => {
       const el2 = node;
@@ -3147,34 +3190,40 @@ td.bpf-cell-selected, th.bpf-cell-selected {
         return;
       const rr = row.getBoundingClientRect();
       const borderY = rr.bottom - wr.top;
-      el2.style.left = `${left}px`;
-      el2.style.top = `${borderY - edge / 2}px`;
-      el2.style.width = `${w}px`;
-      el2.style.height = `${edge}px`;
-      el2.style.right = "auto";
-      el2.style.bottom = "auto";
+      applyElStyles(el2, {
+        left: `${left}px`,
+        top: `${borderY - edge / 2}px`,
+        width: `${w}px`,
+        height: `${edge}px`,
+        right: "auto",
+        bottom: "auto"
+      });
     });
     const right = wrap.querySelector(
       ".bpf-edge-handle-right"
     );
     if (right) {
-      right.style.left = `${left + Math.max(0, w - edge)}px`;
-      right.style.top = `${top}px`;
-      right.style.width = `${edge}px`;
-      right.style.height = `${h}px`;
-      right.style.right = "auto";
-      right.style.bottom = "auto";
+      applyElStyles(right, {
+        left: `${left + Math.max(0, w - edge)}px`,
+        top: `${top}px`,
+        width: `${edge}px`,
+        height: `${h}px`,
+        right: "auto",
+        bottom: "auto"
+      });
     }
     const bottom = wrap.querySelector(
       ".bpf-edge-handle-bottom"
     );
     if (bottom) {
-      bottom.style.left = `${left}px`;
-      bottom.style.top = `${top + Math.max(0, h - edge)}px`;
-      bottom.style.width = `${w}px`;
-      bottom.style.height = `${edge}px`;
-      bottom.style.right = "auto";
-      bottom.style.bottom = "auto";
+      applyElStyles(bottom, {
+        left: `${left}px`,
+        top: `${top + Math.max(0, h - edge)}px`,
+        width: `${w}px`,
+        height: `${edge}px`,
+        right: "auto",
+        bottom: "auto"
+      });
     }
   }
   installResizeHandles(table, tableIndex) {
@@ -3252,14 +3301,14 @@ td.bpf-cell-selected, th.bpf-cell-selected {
         this.activeTableIndex = tableIndex;
         handle.classList.add("is-dragging");
         markTableTouched(table);
-        table.style.height = "";
+        clearElStyles(table, ["height"]);
         const startHeights = Array.from(table.rows).map(
           (r) => Math.max(16, Math.round(r.getBoundingClientRect().height))
         );
         for (let ri = 0; ri < startHeights.length; ri++) {
           const row = table.rows[ri];
           if (row)
-            row.style.height = `${startHeights[ri]}px`;
+            applyElStyles(row, { height: `${startHeights[ri]}px` });
         }
         const startY = ev.clientY;
         const above = i;
@@ -3280,9 +3329,9 @@ td.bpf-cell-selected, th.bpf-cell-selected {
           const rowA = table.rows[above];
           const rowB = table.rows[below];
           if (rowA)
-            rowA.style.height = `${Math.round(a)}px`;
+            applyElStyles(rowA, { height: `${Math.round(a)}px` });
           if (rowB)
-            rowB.style.height = `${Math.round(b)}px`;
+            applyElStyles(rowB, { height: `${Math.round(b)}px` });
           this.syncHandlePositions(table);
         };
         const onUp = () => {
@@ -3381,7 +3430,9 @@ td.bpf-cell-selected, th.bpf-cell-selected {
             const row = table.rows[ri];
             if (!row)
               continue;
-            row.style.height = `${Math.max(16, Math.round(startRowHeights[ri] * scale))}px`;
+            applyElStyles(row, {
+              height: `${Math.max(16, Math.round(startRowHeights[ri] * scale))}px`
+            });
           }
           this.syncHandlePositions(table);
         };
@@ -3464,9 +3515,9 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     for (const i of indices) {
       const row = table.rows[i];
       if (row)
-        row.style.height = `${Math.round(maxH)}px`;
+        applyElStyles(row, { height: `${Math.round(maxH)}px` });
     }
-    table.style.height = "";
+    clearElStyles(table, ["height"]);
     this.syncHandlePositions(table);
     this.setStatus(`Table ${this.activeTableIndex + 1} \xB7 row heights equalized`);
   }
@@ -4052,10 +4103,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
     const section = containerEl.createDiv({
       cls: "beautiful-pdf-section beautiful-pdf-profile-picker"
     });
-    section.createEl("h2", {
-      cls: "beautiful-pdf-profile-title",
-      text: "Document Profile"
-    });
+    new import_obsidian7.Setting(section).setName("Document Profile").setHeading();
     const chips = section.createDiv({ cls: "beautiful-pdf-profile-chips" });
     for (const p of this.plugin.settings.profiles) {
       const chip = chips.createEl("button", {

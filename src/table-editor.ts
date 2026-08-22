@@ -18,6 +18,7 @@ import {
 	type NoteTableLayouts,
 	type TableAlign,
 } from "./table-layout";
+import { applyElStyles, clearElStyles, readElStyle } from "./dom-style";
 import type { PageSettings } from "./types";
 
 type CellKey = string; // `${tableIndex}:${row}:${col}`
@@ -549,12 +550,14 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			if (!cell) return;
 			const cr = cell.getBoundingClientRect();
 			const borderX = cr.right - wr.left;
-			el.style.left = `${borderX - edge / 2}px`;
-			el.style.top = `${top}px`;
-			el.style.width = `${edge}px`;
-			el.style.height = `${h}px`;
-			el.style.right = "auto";
-			el.style.bottom = "auto";
+			applyElStyles(el, {
+				left: `${borderX - edge / 2}px`,
+				top: `${top}px`,
+				width: `${edge}px`,
+				height: `${h}px`,
+				right: "auto",
+				bottom: "auto",
+			});
 		});
 
 		wrap.querySelectorAll(".bpf-row-handle").forEach((node) => {
@@ -564,36 +567,42 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			if (!row) return;
 			const rr = row.getBoundingClientRect();
 			const borderY = rr.bottom - wr.top;
-			el.style.left = `${left}px`;
-			el.style.top = `${borderY - edge / 2}px`;
-			el.style.width = `${w}px`;
-			el.style.height = `${edge}px`;
-			el.style.right = "auto";
-			el.style.bottom = "auto";
+			applyElStyles(el, {
+				left: `${left}px`,
+				top: `${borderY - edge / 2}px`,
+				width: `${w}px`,
+				height: `${edge}px`,
+				right: "auto",
+				bottom: "auto",
+			});
 		});
 
 		const right = wrap.querySelector(
 			".bpf-edge-handle-right",
 		) as HTMLElement | null;
 		if (right) {
-			right.style.left = `${left + Math.max(0, w - edge)}px`;
-			right.style.top = `${top}px`;
-			right.style.width = `${edge}px`;
-			right.style.height = `${h}px`;
-			right.style.right = "auto";
-			right.style.bottom = "auto";
+			applyElStyles(right, {
+				left: `${left + Math.max(0, w - edge)}px`,
+				top: `${top}px`,
+				width: `${edge}px`,
+				height: `${h}px`,
+				right: "auto",
+				bottom: "auto",
+			});
 		}
 
 		const bottom = wrap.querySelector(
 			".bpf-edge-handle-bottom",
 		) as HTMLElement | null;
 		if (bottom) {
-			bottom.style.left = `${left}px`;
-			bottom.style.top = `${top + Math.max(0, h - edge)}px`;
-			bottom.style.width = `${w}px`;
-			bottom.style.height = `${edge}px`;
-			bottom.style.right = "auto";
-			bottom.style.bottom = "auto";
+			applyElStyles(bottom, {
+				left: `${left}px`,
+				top: `${top + Math.max(0, h - edge)}px`,
+				width: `${w}px`,
+				height: `${edge}px`,
+				right: "auto",
+				bottom: "auto",
+			});
 		}
 	}
 
@@ -683,13 +692,13 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 				handle.classList.add("is-dragging");
 				markTableTouched(table);
 				// Unlock overall height so per-row heights control the table.
-				table.style.height = "";
+				clearElStyles(table, ["height"]);
 				const startHeights = Array.from(table.rows).map((r) =>
 					Math.max(16, Math.round(r.getBoundingClientRect().height)),
 				);
 				for (let ri = 0; ri < startHeights.length; ri++) {
 					const row = table.rows[ri];
-					if (row) row.style.height = `${startHeights[ri]}px`;
+					if (row) applyElStyles(row, { height: `${startHeights[ri]}px` });
 				}
 				const startY = ev.clientY;
 				const above = i;
@@ -710,8 +719,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 					}
 					const rowA = table.rows[above];
 					const rowB = table.rows[below];
-					if (rowA) rowA.style.height = `${Math.round(a)}px`;
-					if (rowB) rowB.style.height = `${Math.round(b)}px`;
+					if (rowA) applyElStyles(rowA, { height: `${Math.round(a)}px` });
+					if (rowB) applyElStyles(rowB, { height: `${Math.round(b)}px` });
 					this.syncHandlePositions(table);
 				};
 
@@ -822,7 +831,9 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 					for (let ri = 0; ri < rowCount; ri++) {
 						const row = table.rows[ri];
 						if (!row) continue;
-						row.style.height = `${Math.max(16, Math.round(startRowHeights[ri] * scale))}px`;
+						applyElStyles(row, {
+							height: `${Math.max(16, Math.round(startRowHeights[ri] * scale))}px`,
+						});
 					}
 					this.syncHandlePositions(table);
 				};
@@ -907,9 +918,9 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		}
 		for (const i of indices) {
 			const row = table.rows[i];
-			if (row) row.style.height = `${Math.round(maxH)}px`;
+			if (row) applyElStyles(row, { height: `${Math.round(maxH)}px` });
 		}
-		table.style.height = "";
+		clearElStyles(table, ["height"]);
 		this.syncHandlePositions(table);
 		this.setStatus(`Table ${this.activeTableIndex + 1} · row heights equalized`);
 	}

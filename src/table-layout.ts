@@ -1,4 +1,5 @@
 /** Per-table column/row sizing saved from the optional layout step. */
+import { applyElStyles, clearElStyles, readElStyle } from "./dom-style";
 export type TableAlign = "left" | "center" | "right";
 
 export interface TableLayout {
@@ -84,14 +85,11 @@ export function applyTableBlockAlign(
 		align === "center" || align === "right" ? align : "left";
 	table.dataset.bpfAlign = a;
 	if (a === "center") {
-		table.style.marginLeft = "auto";
-		table.style.marginRight = "auto";
+		applyElStyles(table, { marginLeft: "auto", marginRight: "auto" });
 	} else if (a === "right") {
-		table.style.marginLeft = "auto";
-		table.style.marginRight = "0";
+		applyElStyles(table, { marginLeft: "auto", marginRight: "0" });
 	} else {
-		table.style.marginLeft = "0";
-		table.style.marginRight = "auto";
+		applyElStyles(table, { marginLeft: "0", marginRight: "auto" });
 	}
 	const wrap = table.parentElement;
 	if (wrap?.classList.contains("bpf-table-wrap")) {
@@ -113,20 +111,13 @@ export function clearColumnPixelConstraints(table: HTMLTableElement): void {
 	const group = table.querySelector("colgroup");
 	if (group) {
 		for (const col of Array.from(group.children) as HTMLTableColElement[]) {
-			col.style.minWidth = "";
-			col.style.maxWidth = "";
+			clearElStyles(col, ["minWidth", "maxWidth", "width"]);
 			col.removeAttribute("width");
-			// Keep % widths; convert leftover px to clear so % can be reapplied.
-			if (col.style.width && !col.style.width.endsWith("%")) {
-				col.style.width = "";
-			}
 		}
 	}
 	for (const row of Array.from(table.rows)) {
 		for (const cell of Array.from(row.cells)) {
-			cell.style.width = "";
-			cell.style.minWidth = "";
-			cell.style.maxWidth = "";
+			clearElStyles(cell, ["width", "minWidth", "maxWidth"]);
 			cell.removeAttribute("width");
 		}
 	}
@@ -138,7 +129,7 @@ export function clearColumnPixelConstraints(table: HTMLTableElement): void {
  */
 export function lockTablePixelWidth(table: HTMLTableElement): void {
 	markTableTouched(table);
-	const existing = table.style.width;
+	const existing = readElStyle(table, "width");
 	if (existing && existing !== "100%" && existing !== "auto") {
 		// Still clear stale px floors so subsequent shrinks can take effect.
 		clearColumnPixelConstraints(table);
@@ -146,26 +137,31 @@ export function lockTablePixelWidth(table: HTMLTableElement): void {
 	}
 	const w = Math.round(table.getBoundingClientRect().width);
 	const px = Math.max(40, w);
-	table.style.width = `${px}px`;
-	table.style.minWidth = `${px}px`;
-	table.style.maxWidth = `${px}px`;
+	applyElStyles(table, {
+		width: `${px}px`,
+		minWidth: `${px}px`,
+		maxWidth: `${px}px`,
+	});
 	clearColumnPixelConstraints(table);
 }
 
 export function setTablePixelWidth(table: HTMLTableElement, widthPx: number): void {
 	markTableTouched(table);
 	const px = Math.max(40, Math.round(widthPx));
-	// Pin exact width — leftover min-width from saved layouts used to ignore shrinks.
-	table.style.width = `${px}px`;
-	table.style.minWidth = `${px}px`;
-	table.style.maxWidth = `${px}px`;
-	table.style.tableLayout = "fixed";
+	applyElStyles(table, {
+		width: `${px}px`,
+		minWidth: `${px}px`,
+		maxWidth: `${px}px`,
+		tableLayout: "fixed",
+	});
 	clearColumnPixelConstraints(table);
 }
 
 export function setTablePixelHeight(table: HTMLTableElement, heightPx: number): void {
 	markTableTouched(table);
-	table.style.height = `${Math.max(24, Math.round(heightPx))}px`;
+	applyElStyles(table, {
+		height: `${Math.max(24, Math.round(heightPx))}px`,
+	});
 }
 
 function layoutParent(table: HTMLTableElement): HTMLElement | null {
@@ -197,7 +193,7 @@ export function measureColWidthsPct(table: HTMLTableElement): number[] {
 	const tableW = Math.max(1, table.getBoundingClientRect().width);
 	const widths: number[] = [];
 	for (let i = 0; i < n; i++) {
-		const styleW = cols[i].style.width;
+		const styleW = readElStyle(cols[i], "width");
 		if (styleW.endsWith("%")) {
 			const p = parseFloat(styleW);
 			widths.push(Number.isFinite(p) ? p : 0);
@@ -247,9 +243,8 @@ export function applyColWidthsPct(
 	);
 	const cols = ensureColgroup(table, n);
 	for (let i = 0; i < n; i++) {
-		cols[i].style.width = `${pct[i]}%`;
-		cols[i].style.minWidth = "";
-		cols[i].style.maxWidth = "";
+		applyElStyles(cols[i], { width: `${pct[i]}%` });
+		clearElStyles(cols[i], ["minWidth", "maxWidth"]);
 	}
 }
 
@@ -268,7 +263,7 @@ export function applyRowHeightsPx(
 	for (let i = 0; i < rows.length; i++) {
 		const h = rowHeightsPx[i];
 		if (h != null && h > 0) {
-			rows[i].style.height = `${h}px`;
+			applyElStyles(rows[i], { height: `${h}px` });
 		}
 	}
 }
@@ -389,8 +384,10 @@ export function applyNoteTableLayouts(
 		if (!table) continue;
 		table.classList.add("bpf-table-sized");
 		table.setAttribute("data-bpf-i", String(layout.index));
-		table.style.tableLayout = "fixed";
-		table.style.boxSizing = "border-box";
+		applyElStyles(table, {
+			tableLayout: "fixed",
+			boxSizing: "border-box",
+		});
 
 		const tablePx =
 			layout.widthPct != null && layout.widthPct > 0
@@ -400,9 +397,11 @@ export function applyNoteTableLayouts(
 					)
 				: Math.max(40, table.getBoundingClientRect().width || parentW);
 		const tablePxR = Math.round(tablePx);
-		table.style.width = `${tablePxR}px`;
-		table.style.minWidth = `${tablePxR}px`;
-		table.style.maxWidth = `${tablePxR}px`;
+		applyElStyles(table, {
+			width: `${tablePxR}px`,
+			minWidth: `${tablePxR}px`,
+			maxWidth: `${tablePxR}px`,
+		});
 
 		if (layout.colWidthsPct?.length) {
 			const n = Math.max(tableColumnCount(table), layout.colWidthsPct.length);
@@ -415,9 +414,11 @@ export function applyNoteTableLayouts(
 			const colPx = pct.map((p) => Math.max(8, Math.round((p / 100) * tablePx)));
 			for (let i = 0; i < n; i++) {
 				const w = `${colPx[i]}px`;
-				cols[i].style.width = w;
-				cols[i].style.minWidth = w;
-				cols[i].style.maxWidth = w;
+				applyElStyles(cols[i], {
+					width: w,
+					minWidth: w,
+					maxWidth: w,
+				});
 				cols[i].setAttribute("width", String(colPx[i]));
 			}
 			for (const row of Array.from(table.rows)) {
@@ -430,10 +431,12 @@ export function applyNoteTableLayouts(
 					}
 					if (spanPx > 0) {
 						const w = `${spanPx}px`;
-						cell.style.width = w;
-						cell.style.minWidth = w;
-						cell.style.maxWidth = w;
-						cell.style.boxSizing = "border-box";
+						applyElStyles(cell, {
+							width: w,
+							minWidth: w,
+							maxWidth: w,
+							boxSizing: "border-box",
+						});
 						cell.setAttribute("width", String(spanPx));
 					}
 					colAt += span;
@@ -447,13 +450,13 @@ export function applyNoteTableLayouts(
 				rows[i].setAttribute("data-bpf-r", String(i));
 				const h = layout.rowHeightsPx[i];
 				if (h != null && h > 0) {
-					rows[i].style.height = `${Math.round(h)}px`;
+					applyElStyles(rows[i], { height: `${Math.round(h)}px` });
 				}
 			}
 		}
 
 		if (layout.heightPx != null && layout.heightPx > 0) {
-			table.style.height = `${Math.round(layout.heightPx)}px`;
+			applyElStyles(table, { height: `${Math.round(layout.heightPx)}px` });
 		}
 
 		if (layout.align) {
@@ -466,9 +469,9 @@ function tableHasCustomSizing(table: HTMLTableElement): boolean {
 	if (table.dataset.bpfTouched === "1") return true;
 	if (table.classList.contains("bpf-table-sized")) return true;
 	if (table.dataset.bpfAlign && table.dataset.bpfAlign !== "left") return true;
-	if (table.style.width || table.style.height) return true;
+	if (readElStyle(table, "width") || readElStyle(table, "height")) return true;
 	if (table.querySelector("colgroup")) return true;
-	if (Array.from(table.rows).some((r) => !!r.style.height)) return true;
+	if (Array.from(table.rows).some((r) => !!readElStyle(r, "height"))) return true;
 	return false;
 }
 
@@ -484,10 +487,12 @@ export function captureNoteTableLayouts(root: HTMLElement): NoteTableLayouts {
 	tablesBefore.forEach((table, index) => {
 		if (!tableHasCustomSizing(table)) return;
 		const colWidthsPct = measureColWidthsPct(table);
-		const hasRowOverride = Array.from(table.rows).some((r) => !!r.style.height);
-		const heightPx = parseFloat(table.style.height);
+		const hasRowOverride = Array.from(table.rows).some(
+			(r) => !!readElStyle(r, "height"),
+		);
+		const heightPx = parseFloat(readElStyle(table, "height"));
 		const rowHeightsPx = Array.from(table.rows).map((row) => {
-			const h = parseFloat(row.style.height);
+			const h = parseFloat(readElStyle(row, "height"));
 			if (Number.isFinite(h) && h > 0) return h;
 			return Math.round(row.getBoundingClientRect().height);
 		});
@@ -521,13 +526,15 @@ export function resetTableSizing(table: HTMLTableElement): void {
 	table.classList.remove("bpf-table-sized");
 	delete table.dataset.bpfTouched;
 	table.removeAttribute("data-bpf-i");
-	table.style.width = "";
-	table.style.height = "";
-	table.style.minWidth = "";
-	table.style.maxWidth = "";
-	table.style.tableLayout = "";
-	table.style.marginLeft = "";
-	table.style.marginRight = "";
+	clearElStyles(table, [
+		"width",
+		"height",
+		"minWidth",
+		"maxWidth",
+		"tableLayout",
+		"marginLeft",
+		"marginRight",
+	]);
 	delete table.dataset.bpfAlign;
 	const wrap = table.parentElement;
 	if (wrap?.classList.contains("bpf-table-wrap")) {
@@ -537,7 +544,7 @@ export function resetTableSizing(table: HTMLTableElement): void {
 	const group = table.querySelector("colgroup");
 	group?.remove();
 	for (const row of Array.from(table.rows)) {
-		row.style.height = "";
+		clearElStyles(row, ["height"]);
 		row.removeAttribute("data-bpf-r");
 	}
 }

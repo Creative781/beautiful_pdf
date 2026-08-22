@@ -7,6 +7,7 @@ import {
 	applyNoteImageLayouts,
 	captureNoteImageLayouts,
 	IMAGE_SIZE_PRESETS,
+	measureImageWidthPct,
 	nearestSizePreset,
 	resetImageSizing,
 	type ImageAlign,
@@ -288,7 +289,7 @@ img.bpf-img-sized.bpf-img-active {
 			img.classList.toggle("bpf-img-active", j === i);
 		});
 		const img = imgs[i];
-		const pct = parseFloat(img.style.width) || IMAGE_SIZE_PRESETS.medium;
+		const pct = measureImageWidthPct(img, this.contentWidthPx());
 		const align = (img.dataset.bpfAlign as ImageAlign) || "center";
 		const preset = nearestSizePreset(pct);
 		const px = Math.round((pct / 100) * this.contentWidthPx());
@@ -338,9 +339,10 @@ img.bpf-img-sized.bpf-img-active {
 	private setAlign(align: ImageAlign): void {
 		const img = this.activeImg();
 		if (!img) return;
-		const pct =
-			parseFloat(img.style.width) ||
-			IMAGE_SIZE_PRESETS[nearestSizePreset(55)];
+		const pct = measureImageWidthPct(
+			img,
+			this.contentWidthPx(),
+		);
 		applyImageLayout(img, { widthPct: pct, align });
 		this.selectIndex(this.activeIndex);
 	}

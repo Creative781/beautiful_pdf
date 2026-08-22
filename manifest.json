@@ -1,7 +1,7 @@
 {
 	"id": "beautiful-pdf",
 	"name": "Beautiful PDF",
-	"version": "1.2.0",
+	"version": "1.2.1",
 	"minAppVersion": "1.5.0",
 	"description": "Export Markdown notes to styled PDFs with document profiles, add-ons (table/image layout, header placeholders, HR styles), and true PDF preview.",
 	"author": "Creative781",

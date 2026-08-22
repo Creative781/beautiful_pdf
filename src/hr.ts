@@ -61,5 +61,5 @@ export function applyHrPreview(sample: HTMLElement, style: ElementStyle): void {
 	sample.addClass(`is-hr-${preset}`);
 	sample.empty();
 	const line = sample.createDiv({ cls: "beautiful-pdf-hr-line" });
-	line.style.setProperty("--bpf-hr-color", style.color || "#cccccc");
+	line.setCssProps({ "--bpf-hr-color": style.color || "#cccccc" });
 }

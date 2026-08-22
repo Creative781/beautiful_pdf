@@ -1,3 +1,5 @@
+import { applyElStyles, clearElStyles, readElStyle } from "./dom-style";
+
 /** Per-image size/alignment saved from the optional Adjust images step. */
 export type ImageAlign = "left" | "center" | "right";
 
@@ -51,20 +53,20 @@ export function applyImageLayout(
 ): void {
 	markImageTouched(img);
 	const pct = Math.min(100, Math.max(5, layout.widthPct));
-	img.style.width = `${pct}%`;
-	img.style.maxWidth = `${pct}%`;
-	img.style.height = "auto";
-	img.style.display = "block";
-	if (layout.align === "center") {
-		img.style.marginLeft = "auto";
-		img.style.marginRight = "auto";
-	} else if (layout.align === "right") {
-		img.style.marginLeft = "auto";
-		img.style.marginRight = "0";
-	} else {
-		img.style.marginLeft = "0";
-		img.style.marginRight = "auto";
-	}
+	img.dataset.bpfWidthPct = String(pct);
+	const margins =
+		layout.align === "center"
+			? { marginLeft: "auto", marginRight: "auto" }
+			: layout.align === "right"
+				? { marginLeft: "auto", marginRight: "0" }
+				: { marginLeft: "0", marginRight: "auto" };
+	applyElStyles(img, {
+		width: `${pct}%`,
+		maxWidth: `${pct}%`,
+		height: "auto",
+		display: "block",
+		...margins,
+	});
 	img.dataset.bpfAlign = layout.align;
 }
 
@@ -111,7 +113,7 @@ export function imageLayoutsToCss(
 function imageHasCustomSizing(img: HTMLImageElement): boolean {
 	if (img.dataset.bpfImgTouched === "1") return true;
 	if (img.classList.contains("bpf-img-sized")) return true;
-	if (img.style.width || img.dataset.bpfAlign) return true;
+	if (img.dataset.bpfWidthPct || img.dataset.bpfAlign) return true;
 	return false;
 }
 
@@ -119,15 +121,19 @@ export function measureImageWidthPct(
 	img: HTMLImageElement,
 	contentWidthPx: number,
 ): number {
+	const stored = img.dataset.bpfWidthPct;
+	if (stored) {
+		const p = parseFloat(stored);
+		if (Number.isFinite(p) && p > 0) return Math.min(100, Math.max(5, p));
+	}
 	const parent =
-		(img.closest(".markdown-preview-view") as HTMLElement | null) ??
-		img.parentElement;
+		img.closest(".markdown-preview-view") ?? img.parentElement;
 	const pw =
 		contentWidthPx ||
-		parent?.clientWidth ||
-		parent?.getBoundingClientRect().width ||
+		(parent instanceof HTMLElement ? parent.clientWidth : 0) ||
+		(parent instanceof HTMLElement ? parent.getBoundingClientRect().width : 0) ||
 		1;
-	const styleW = img.style.width;
+	const styleW = readElStyle(img, "width");
 	if (styleW.endsWith("%")) {
 		const p = parseFloat(styleW);
 		if (Number.isFinite(p) && p > 0) return Math.min(100, Math.max(5, p));
@@ -140,17 +146,17 @@ export function captureNoteImageLayouts(
 	root: HTMLElement,
 	contentWidthPx?: number,
 ): NoteImageLayouts {
-	const imgs = Array.from(root.querySelectorAll("img")) as HTMLImageElement[];
-	const parent = root.querySelector(".markdown-preview-view") as HTMLElement | null;
+	const imgs = Array.from(root.querySelectorAll("img"));
+	const parent = root.querySelector(".markdown-preview-view");
 	const pw =
 		contentWidthPx ??
-		parent?.clientWidth ??
+		(parent instanceof HTMLElement ? parent.clientWidth : undefined) ??
 		root.clientWidth ??
 		800;
 	const snapshots: ImageLayout[] = [];
 	imgs.forEach((img, index) => {
 		if (!imageHasCustomSizing(img)) return;
-		const align = (img.dataset.bpfAlign as ImageAlign) || inferAlign(img);
+		const align = readImageAlign(img);
 		snapshots.push({
 			index,
 			widthPct: measureImageWidthPct(img, pw),
@@ -160,9 +166,11 @@ export function captureNoteImageLayouts(
 	return { images: snapshots };
 }
 
-function inferAlign(img: HTMLImageElement): ImageAlign {
-	const ml = img.style.marginLeft;
-	const mr = img.style.marginRight;
+function readImageAlign(img: HTMLImageElement): ImageAlign {
+	const raw = img.dataset.bpfAlign;
+	if (raw === "center" || raw === "right" || raw === "left") return raw;
+	const ml = readElStyle(img, "marginLeft");
+	const mr = readElStyle(img, "marginRight");
 	if (ml === "auto" && mr === "auto") return "center";
 	if (ml === "auto") return "right";
 	return "left";
@@ -172,11 +180,14 @@ export function resetImageSizing(img: HTMLImageElement): void {
 	img.classList.remove("bpf-img-sized");
 	delete img.dataset.bpfImgTouched;
 	delete img.dataset.bpfAlign;
+	delete img.dataset.bpfWidthPct;
 	img.removeAttribute("data-bpf-img");
-	img.style.width = "";
-	img.style.maxWidth = "";
-	img.style.height = "";
-	img.style.display = "";
-	img.style.marginLeft = "";
-	img.style.marginRight = "";
+	clearElStyles(img, [
+		"width",
+		"maxWidth",
+		"height",
+		"display",
+		"marginLeft",
+		"marginRight",
+	]);
 }

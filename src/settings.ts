@@ -125,10 +125,7 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		const section = containerEl.createDiv({
 			cls: "beautiful-pdf-section beautiful-pdf-profile-picker",
 		});
-		section.createEl("h2", {
-			cls: "beautiful-pdf-profile-title",
-			text: "Document Profile",
-		});
+		new Setting(section).setName("Document Profile").setHeading();
 
 		const chips = section.createDiv({ cls: "beautiful-pdf-profile-chips" });
 		for (const p of this.plugin.settings.profiles) {
