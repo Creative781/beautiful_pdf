@@ -714,22 +714,122 @@ function readElStyle(el2, key) {
 }
 
 // src/dom-guards.ts
+var ELEMENT_NODE = 1;
+var TEXT_NODE = 3;
+function isElementNode(el2) {
+  if (el2 == null || typeof el2 !== "object")
+    return false;
+  const node = el2;
+  return node.nodeType === ELEMENT_NODE;
+}
+function elementInstanceOf(el2, ctor) {
+  var _a;
+  if (el2 == null || typeof el2 !== "object")
+    return false;
+  const node = el2;
+  if (typeof node.instanceOf === "function") {
+    return node.instanceOf(ctor);
+  }
+  if (el2 instanceof ctor)
+    return true;
+  if (!isElementNode(el2))
+    return false;
+  const realm = (_a = el2.ownerDocument) == null ? void 0 : _a.defaultView;
+  if (!realm)
+    return false;
+  const realmCtor = realm[ctor.name];
+  if (typeof realmCtor !== "function")
+    return false;
+  const proto = realmCtor.prototype;
+  if (!proto)
+    return false;
+  return Object.prototype.isPrototypeOf.call(proto, el2);
+}
+function eventTargetElement(ev) {
+  var _a;
+  const t = ev.target;
+  if (t == null || typeof t !== "object")
+    return null;
+  const node = t;
+  if (node.nodeType === ELEMENT_NODE) {
+    return htmlElement(t);
+  }
+  if (node.nodeType === TEXT_NODE) {
+    return htmlElement((_a = node.parentElement) != null ? _a : null);
+  }
+  return null;
+}
 function htmlElement(el2) {
-  return (el2 == null ? void 0 : el2.instanceOf(HTMLElement)) ? el2 : null;
+  return elementInstanceOf(el2, HTMLElement) ? el2 : null;
 }
 function htmlTable(el2) {
-  return (el2 == null ? void 0 : el2.instanceOf(HTMLTableElement)) ? el2 : null;
+  return elementInstanceOf(el2, HTMLTableElement) ? el2 : null;
 }
 function htmlTableCell(el2) {
-  return (el2 == null ? void 0 : el2.instanceOf(HTMLTableCellElement)) ? el2 : null;
+  return elementInstanceOf(el2, HTMLTableCellElement) ? el2 : null;
 }
 function htmlTableRow(el2) {
-  return (el2 == null ? void 0 : el2.instanceOf(HTMLTableRowElement)) ? el2 : null;
+  return elementInstanceOf(el2, HTMLTableRowElement) ? el2 : null;
 }
 function htmlTableCols(group) {
   return Array.from(group.children).filter(
-    (c) => c.instanceOf(HTMLTableColElement)
+    (c) => elementInstanceOf(c, HTMLTableColElement)
   );
+}
+
+// src/dom-iframe.ts
+function obsidianWin(doc) {
+  var _a, _b;
+  const d = doc;
+  return (_b = (_a = d.win) != null ? _a : doc.defaultView) != null ? _b : window;
+}
+function iframeCreateDiv(parent, cls, attrs) {
+  const win = obsidianWin(parent.ownerDocument);
+  if (typeof win.createDiv === "function") {
+    const el3 = win.createDiv({ cls, attr: attrs });
+    parent.appendChild(el3);
+    return el3;
+  }
+  const el2 = parent.ownerDocument.createElement("div");
+  el2.className = cls;
+  if (attrs) {
+    for (const [k, v] of Object.entries(attrs)) {
+      el2.setAttribute(k, v);
+    }
+  }
+  parent.appendChild(el2);
+  return el2;
+}
+function iframeInsertDiv(parent, before, cls, text) {
+  const win = obsidianWin(parent.ownerDocument);
+  if (typeof win.createDiv === "function") {
+    const el3 = win.createDiv({ cls, text });
+    parent.insertBefore(el3, before);
+    return el3;
+  }
+  const el2 = parent.ownerDocument.createElement("div");
+  el2.className = cls;
+  if (text)
+    el2.textContent = text;
+  parent.insertBefore(el2, before);
+  return el2;
+}
+function iframeEnsureColgroup(table) {
+  const existing = table.querySelector("colgroup");
+  if (existing)
+    return existing;
+  const doc = table.ownerDocument;
+  const win = obsidianWin(doc);
+  const group = typeof win.createEl === "function" ? win.createEl("colgroup") : doc.createElement("colgroup");
+  table.insertBefore(group, table.firstChild);
+  return group;
+}
+function iframeAppendCol(group) {
+  const doc = group.ownerDocument;
+  const win = obsidianWin(doc);
+  const col = typeof win.createEl === "function" ? win.createEl("col") : doc.createElement("col");
+  group.appendChild(col);
+  return col;
 }
 
 // src/table-layout.ts
@@ -752,14 +852,13 @@ function ensureColgroup(table, colCount) {
   var _a;
   let group = table.querySelector("colgroup");
   if (!group) {
-    group = table.createEl("colgroup");
-    table.insertBefore(group, table.firstChild);
+    group = iframeEnsureColgroup(table);
   }
   while (group.children.length > colCount) {
     (_a = group.lastElementChild) == null ? void 0 : _a.remove();
   }
   while (group.children.length < colCount) {
-    group.createEl("col");
+    iframeAppendCol(group);
   }
   return htmlTableCols(group);
 }
@@ -798,6 +897,14 @@ function readTableBlockAlign(table) {
     return raw;
   return "left";
 }
+function clearCellPixelConstraints(table) {
+  for (const row of Array.from(table.rows)) {
+    for (const cell of Array.from(row.cells)) {
+      clearElStyles(cell, ["width", "minWidth", "maxWidth"]);
+      cell.removeAttribute("width");
+    }
+  }
+}
 function clearColumnPixelConstraints(table) {
   const group = table.querySelector("colgroup");
   if (group) {
@@ -806,18 +913,13 @@ function clearColumnPixelConstraints(table) {
       col.removeAttribute("width");
     }
   }
-  for (const row of Array.from(table.rows)) {
-    for (const cell of Array.from(row.cells)) {
-      clearElStyles(cell, ["width", "minWidth", "maxWidth"]);
-      cell.removeAttribute("width");
-    }
-  }
+  clearCellPixelConstraints(table);
 }
 function lockTablePixelWidth(table) {
   markTableTouched(table);
   const existing = readElStyle(table, "width");
   if (existing && existing !== "100%" && existing !== "auto") {
-    clearColumnPixelConstraints(table);
+    clearCellPixelConstraints(table);
     return;
   }
   const w = Math.round(table.getBoundingClientRect().width);
@@ -825,9 +927,10 @@ function lockTablePixelWidth(table) {
   applyElStyles(table, {
     width: `${px}px`,
     minWidth: `${px}px`,
-    maxWidth: `${px}px`
+    maxWidth: `${px}px`,
+    tableLayout: "fixed"
   });
-  clearColumnPixelConstraints(table);
+  clearCellPixelConstraints(table);
 }
 function setTablePixelWidth(table, widthPx) {
   markTableTouched(table);
@@ -862,10 +965,62 @@ function measureTableWidthPct(table) {
   const tw = table.getBoundingClientRect().width;
   return Math.min(100, Math.max(5, tw / pw * 100));
 }
+function readStoredColPct(table) {
+  const raw = table.dataset.bpfColPct;
+  if (!raw)
+    return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed))
+      return null;
+    const nums = parsed.map((v) => Number(v));
+    if (nums.some((n) => !Number.isFinite(n) || n <= 0))
+      return null;
+    return normalizePercents(nums);
+  } catch (e) {
+    return null;
+  }
+}
+function storeColPct(table, pct) {
+  table.dataset.bpfColPct = JSON.stringify(normalizePercents(pct));
+}
+function measureRowHeightsPx(table) {
+  const raw = table.dataset.bpfRowPx;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length === table.rows.length) {
+        return parsed.map(
+          (v) => Math.max(16, Math.round(Number(v) || 16))
+        );
+      }
+    } catch (e) {
+    }
+  }
+  return Array.from(table.rows).map((row) => {
+    const h = parseFloat(readElStyle(row, "height"));
+    if (Number.isFinite(h) && h > 0)
+      return Math.round(h);
+    return Math.max(16, Math.round(row.getBoundingClientRect().height));
+  });
+}
+function storeRowHeightsPx(table, heights) {
+  const rounded = heights.map((h) => Math.max(16, Math.round(h)));
+  table.dataset.bpfRowPx = JSON.stringify(rounded);
+  for (let i = 0; i < table.rows.length; i++) {
+    const row = table.rows[i];
+    const h = rounded[i];
+    if (row && h != null)
+      applyElStyles(row, { height: `${h}px` });
+  }
+}
 function measureColWidthsPct(table) {
   const n = tableColumnCount(table);
   if (n === 0)
     return [];
+  const stored = readStoredColPct(table);
+  if (stored && stored.length === n)
+    return stored;
   const cols = ensureColgroup(table, n);
   const tableW = Math.max(1, table.getBoundingClientRect().width);
   const widths = [];
@@ -885,6 +1040,11 @@ function measureColWidthsPct(table) {
   }
   return normalizePercents(widths);
 }
+function persistColWidthsPct(table) {
+  const pct = measureColWidthsPct(table);
+  storeColPct(table, pct);
+  return pct;
+}
 function cellAtColumn(table, rowIndex, colIndex) {
   const row = table.rows[rowIndex];
   if (!row)
@@ -900,11 +1060,13 @@ function cellAtColumn(table, rowIndex, colIndex) {
 }
 function applyColWidthsPct(table, colWidthsPct) {
   lockTablePixelWidth(table);
-  clearColumnPixelConstraints(table);
+  clearCellPixelConstraints(table);
   const n = Math.max(tableColumnCount(table), colWidthsPct.length);
   const pct = normalizePercents(
     colWidthsPct.length === n ? colWidthsPct : padOrTrim(colWidthsPct, n, 100 / Math.max(1, n))
   );
+  storeColPct(table, pct);
+  applyElStyles(table, { tableLayout: "fixed" });
   const cols = ensureColgroup(table, n);
   for (let i = 0; i < n; i++) {
     applyElStyles(cols[i], { width: `${pct[i]}%` });
@@ -1091,9 +1253,10 @@ function tableHasCustomSizing(table) {
   return false;
 }
 function captureNoteTableLayouts(root) {
-  const tablesBefore = Array.from(root.querySelectorAll("table")).filter(
-    (el2) => el2.instanceOf(HTMLTableElement)
-  );
+  const tablesBefore = Array.from(root.querySelectorAll("table")).flatMap((el2) => {
+    const table = htmlTable(el2);
+    return table ? [table] : [];
+  });
   const snapshots = [];
   tablesBefore.forEach((table, index) => {
     if (!tableHasCustomSizing(table))
@@ -1103,12 +1266,7 @@ function captureNoteTableLayouts(root) {
       (r) => !!readElStyle(r, "height")
     );
     const heightPx = parseFloat(readElStyle(table, "height"));
-    const rowHeightsPx = Array.from(table.rows).map((row) => {
-      const h = parseFloat(readElStyle(row, "height"));
-      if (Number.isFinite(h) && h > 0)
-        return h;
-      return Math.round(row.getBoundingClientRect().height);
-    });
+    const rowHeightsPx = measureRowHeightsPx(table);
     const widthPct = measureTableWidthPct(table);
     const align = readTableBlockAlign(table);
     snapshots.push({
@@ -1143,6 +1301,8 @@ function resetTableSizing(table) {
     "marginRight"
   ]);
   delete table.dataset.bpfAlign;
+  delete table.dataset.bpfColPct;
+  delete table.dataset.bpfRowPx;
   const wrap = table.parentElement;
   if (wrap == null ? void 0 : wrap.classList.contains("bpf-table-wrap")) {
     wrap.dataset.align = "left";
@@ -2817,14 +2977,16 @@ var _TableAdjustModal = class extends import_obsidian4.Modal {
     const root = this.root();
     if (!root)
       return [];
-    return Array.from(root.querySelectorAll("table")).filter(
-      (el2) => el2.instanceOf(HTMLTableElement)
-    );
+    return Array.from(root.querySelectorAll("table")).flatMap((el2) => {
+      const table = htmlTable(el2);
+      return table ? [table] : [];
+    });
   }
   paperView() {
     var _a;
-    const el2 = (_a = this.doc()) == null ? void 0 : _a.querySelector(".bpf-paper .markdown-preview-view");
-    return el2.instanceOf(HTMLElement) ? el2 : null;
+    return htmlElement(
+      (_a = this.doc()) == null ? void 0 : _a.querySelector(".bpf-paper .markdown-preview-view")
+    );
   }
   async loadHtml() {
     var _a, _b, _c, _d, _e, _f, _g;
@@ -3048,7 +3210,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       if (!this.dragSelect || this.resizing)
         return;
       const cell = htmlTableCell(
-        (_b = (_a = htmlElement(ev.target)) == null ? void 0 : _a.closest("td, th")) != null ? _b : null
+        (_b = (_a = eventTargetElement(ev)) == null ? void 0 : _a.closest("td, th")) != null ? _b : null
       );
       if (!cell)
         return;
@@ -3076,7 +3238,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     );
     const onBackgroundDown = (ev) => {
       var _a;
-      const t = htmlElement(ev.target);
+      const t = eventTargetElement(ev);
       if (!t)
         return;
       if ((_a = t.closest) == null ? void 0 : _a.call(t, "td, th, .bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom, button")) {
@@ -3092,22 +3254,23 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     tables.forEach((table, tableIndex) => {
       const parent = table.parentElement;
       if (parent) {
-        const hint = parent.createDiv({
-          cls: "bpf-table-hint",
-          text: `Table ${tableIndex + 1}`
-        });
-        parent.insertBefore(hint, table);
+        iframeInsertDiv(
+          parent,
+          table,
+          "bpf-table-hint",
+          `Table ${tableIndex + 1}`
+        );
       }
       const onCellDown = (ev) => {
         var _a, _b, _c;
         if (this.resizing)
           return;
         const cell = htmlTableCell(
-          (_b = (_a = htmlElement(ev.target)) == null ? void 0 : _a.closest("td, th")) != null ? _b : null
+          (_b = (_a = eventTargetElement(ev)) == null ? void 0 : _a.closest("td, th")) != null ? _b : null
         );
         if (!cell || !table.contains(cell))
           return;
-        if ((_c = htmlElement(ev.target)) == null ? void 0 : _c.closest(
+        if ((_c = eventTargetElement(ev)) == null ? void 0 : _c.closest(
           ".bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom"
         )) {
           return;
@@ -3184,7 +3347,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     }
     if (!parent)
       return table;
-    const wrap = parent.createDiv({ cls: "bpf-table-wrap" });
+    const wrap = iframeCreateDiv(parent, "bpf-table-wrap");
     const align = readTableAlign(table);
     wrap.dataset.align = align;
     parent.insertBefore(wrap, table);
@@ -3299,12 +3462,9 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     this.clearHandles(table);
     const n = tableColumnCount(table);
     for (let i = 0; i < n - 1; i++) {
-      const handle = wrap.createDiv({
-        cls: "bpf-col-handle",
-        attr: {
-          "data-col": String(i),
-          title: "Drag to resize columns"
-        }
+      const handle = iframeCreateDiv(wrap, "bpf-col-handle", {
+        "data-col": String(i),
+        title: "Drag to resize columns"
       });
       const onDown = (ev) => {
         ev.preventDefault();
@@ -3345,6 +3505,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
           this.resizing = false;
           doc.removeEventListener("mousemove", onMove);
           doc.removeEventListener("mouseup", onUp);
+          persistColWidthsPct(table);
           this.setStatus(`Table ${tableIndex + 1} \xB7 columns updated`);
         };
         doc.addEventListener("mousemove", onMove);
@@ -3355,12 +3516,9 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     }
     const rowCount = table.rows.length;
     for (let i = 0; i < rowCount - 1; i++) {
-      const handle = wrap.createDiv({
-        cls: "bpf-row-handle",
-        attr: {
-          "data-row": String(i),
-          title: "Drag to resize rows"
-        }
+      const handle = iframeCreateDiv(wrap, "bpf-row-handle", {
+        "data-row": String(i),
+        title: "Drag to resize rows"
       });
       const onDown = (ev) => {
         ev.preventDefault();
@@ -3371,14 +3529,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
         handle.classList.add("is-dragging");
         markTableTouched(table);
         clearElStyles(table, ["height"]);
-        const startHeights = Array.from(table.rows).map(
-          (r) => Math.max(16, Math.round(r.getBoundingClientRect().height))
-        );
-        for (let ri = 0; ri < startHeights.length; ri++) {
-          const row = table.rows[ri];
-          if (row)
-            applyElStyles(row, { height: `${startHeights[ri]}px` });
-        }
+        const startHeights = measureRowHeightsPx(table);
+        storeRowHeightsPx(table, startHeights);
         const startY = ev.clientY;
         const above = i;
         const below = i + 1;
@@ -3410,6 +3562,16 @@ td.bpf-cell-selected, th.bpf-cell-selected {
           doc.removeEventListener("mouseup", onUp);
           win == null ? void 0 : win.removeEventListener("mousemove", onMove);
           win == null ? void 0 : win.removeEventListener("mouseup", onUp);
+          const heights = Array.from(table.rows).map((row) => {
+            const h = parseFloat(readElStyle(row, "height"));
+            if (Number.isFinite(h) && h > 0)
+              return Math.round(h);
+            return Math.max(
+              16,
+              Math.round(row.getBoundingClientRect().height)
+            );
+          });
+          storeRowHeightsPx(table, heights);
           this.setStatus(`Table ${tableIndex + 1} \xB7 rows updated`);
         };
         const win = doc.defaultView;
@@ -3421,9 +3583,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       handle.addEventListener("mousedown", onDown);
       this.detachFns.push(() => handle.removeEventListener("mousedown", onDown));
     }
-    const rightEdge = wrap.createDiv({
-      cls: "bpf-edge-handle-right",
-      attr: { title: "Drag to resize table width" }
+    const rightEdge = iframeCreateDiv(wrap, "bpf-edge-handle-right", {
+      title: "Drag to resize table width"
     });
     {
       const onDown = (ev) => {
@@ -3457,6 +3618,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
           doc.removeEventListener("mouseup", onUp);
           win == null ? void 0 : win.removeEventListener("mousemove", onMove);
           win == null ? void 0 : win.removeEventListener("mouseup", onUp);
+          persistColWidthsPct(table);
           this.setStatus(
             `Table ${tableIndex + 1} \xB7 width ${Math.round(
               table.getBoundingClientRect().width
@@ -3472,9 +3634,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       rightEdge.addEventListener("mousedown", onDown);
       this.detachFns.push(() => rightEdge.removeEventListener("mousedown", onDown));
     }
-    const bottomEdge = wrap.createDiv({
-      cls: "bpf-edge-handle-bottom",
-      attr: { title: "Drag to resize table height" }
+    const bottomEdge = iframeCreateDiv(wrap, "bpf-edge-handle-bottom", {
+      title: "Drag to resize table height"
     });
     {
       const onDown = (ev) => {
@@ -3510,6 +3671,16 @@ td.bpf-cell-selected, th.bpf-cell-selected {
           this.resizing = false;
           doc.removeEventListener("mousemove", onMove);
           doc.removeEventListener("mouseup", onUp);
+          const heights = Array.from(table.rows).map((row) => {
+            const h = parseFloat(readElStyle(row, "height"));
+            if (Number.isFinite(h) && h > 0)
+              return Math.round(h);
+            return Math.max(
+              16,
+              Math.round(row.getBoundingClientRect().height)
+            );
+          });
+          storeRowHeightsPx(table, heights);
           this.setStatus(
             `Table ${tableIndex + 1} \xB7 height ${Math.round(
               table.getBoundingClientRect().height
@@ -3584,6 +3755,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
         applyElStyles(row, { height: `${Math.round(maxH)}px` });
     }
     clearElStyles(table, ["height"]);
+    storeRowHeightsPx(table, measureRowHeightsPx(table));
     this.syncHandlePositions(table);
     this.setStatus(`Table ${this.activeTableIndex + 1} \xB7 row heights equalized`);
   }
@@ -4137,8 +4309,8 @@ var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
   }
   /** Obsidian settings scroll pane — Windows resets this on full redraw. */
   captureScroll() {
-    const pane = this.containerEl.closest(".vertical-tab-content");
-    if (pane.instanceOf(HTMLElement)) {
+    const pane = htmlElement(this.containerEl.closest(".vertical-tab-content"));
+    if (pane) {
       return { el: pane, top: pane.scrollTop };
     }
     let el2 = this.containerEl;

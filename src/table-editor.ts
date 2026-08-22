@@ -11,22 +11,27 @@ import {
 	lockTablePixelWidth,
 	markTableTouched,
 	measureColWidthsPct,
+	measureRowHeightsPx,
 	normalizePercents,
+	persistColWidthsPct,
 	readTableBlockAlign,
 	resetTableSizing,
 	setTablePixelHeight,
 	setTablePixelWidth,
+	storeRowHeightsPx,
 	tableColumnCount,
 	type NoteTableLayouts,
 	type TableAlign,
 } from "./table-layout";
-import { applyElStyles, clearElStyles } from "./dom-style";
+import { applyElStyles, clearElStyles, readElStyle } from "./dom-style";
 import {
+	eventTargetElement,
 	htmlElement,
 	htmlTable,
 	htmlTableCell,
 	htmlTableRow,
 } from "./dom-guards";
+import { iframeCreateDiv, iframeInsertDiv } from "./dom-iframe";
 import type { PageSettings } from "./types";
 
 type CellKey = string; // `${tableIndex}:${row}:${col}`
@@ -127,14 +132,16 @@ export class TableAdjustModal extends Modal {
 	private tablesInRoot(): HTMLTableElement[] {
 		const root = this.root();
 		if (!root) return [];
-		return Array.from(root.querySelectorAll("table")).filter(
-			(el): el is HTMLTableElement => el.instanceOf(HTMLTableElement),
-		);
+		return Array.from(root.querySelectorAll("table")).flatMap((el) => {
+			const table = htmlTable(el);
+			return table ? [table] : [];
+		});
 	}
 
 	private paperView(): HTMLElement | null {
-		const el = this.doc()?.querySelector(".bpf-paper .markdown-preview-view");
-		return el.instanceOf(HTMLElement) ? el : null;
+		return htmlElement(
+			this.doc()?.querySelector(".bpf-paper .markdown-preview-view"),
+		);
 	}
 
 	private async loadHtml(): Promise<void> {
@@ -372,7 +379,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		const onDocMouseMove = (ev: MouseEvent) => {
 			if (!this.dragSelect || this.resizing) return;
 			const cell = htmlTableCell(
-				htmlElement(ev.target)?.closest("td, th") ?? null,
+				eventTargetElement(ev)?.closest("td, th") ?? null,
 			);
 			if (!cell) return;
 			const table = htmlTable(cell.closest("table"));
@@ -396,7 +403,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		);
 
 		const onBackgroundDown = (ev: MouseEvent) => {
-			const t = htmlElement(ev.target);
+			const t = eventTargetElement(ev);
 			if (!t) return;
 			if (t.closest?.("td, th, .bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom, button")) {
 				return;
@@ -412,21 +419,22 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		tables.forEach((table, tableIndex) => {
 			const parent = table.parentElement;
 			if (parent) {
-				const hint = parent.createDiv({
-					cls: "bpf-table-hint",
-					text: `Table ${tableIndex + 1}`,
-				});
-				parent.insertBefore(hint, table);
+				iframeInsertDiv(
+					parent,
+					table,
+					"bpf-table-hint",
+					`Table ${tableIndex + 1}`,
+				);
 			}
 
 			const onCellDown = (ev: MouseEvent) => {
 				if (this.resizing) return;
 				const cell = htmlTableCell(
-					htmlElement(ev.target)?.closest("td, th") ?? null,
+					eventTargetElement(ev)?.closest("td, th") ?? null,
 				);
 				if (!cell || !table.contains(cell)) return;
 				if (
-					htmlElement(ev.target)?.closest(
+					eventTargetElement(ev)?.closest(
 						".bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom",
 					)
 				) {
@@ -511,7 +519,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			return parent;
 		}
 		if (!parent) return table;
-		const wrap = parent.createDiv({ cls: "bpf-table-wrap" });
+		const wrap = iframeCreateDiv(parent, "bpf-table-wrap");
 		const align = readTableAlign(table);
 		wrap.dataset.align = align;
 		parent.insertBefore(wrap, table);
@@ -637,12 +645,9 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 
 		// Inner borders: redistribute adjacent columns; keep overall width
 		for (let i = 0; i < n - 1; i++) {
-			const handle = wrap.createDiv({
-				cls: "bpf-col-handle",
-				attr: {
-					"data-col": String(i),
-					title: "Drag to resize columns",
-				},
+			const handle = iframeCreateDiv(wrap, "bpf-col-handle", {
+				"data-col": String(i),
+				title: "Drag to resize columns",
 			});
 
 			const onDown = (ev: MouseEvent) => {
@@ -686,6 +691,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 					this.resizing = false;
 					doc.removeEventListener("mousemove", onMove);
 					doc.removeEventListener("mouseup", onUp);
+					persistColWidthsPct(table);
 					this.setStatus(`Table ${tableIndex + 1} · columns updated`);
 				};
 
@@ -700,12 +706,9 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		// Inner row borders: redistribute adjacent row heights; keep overall height
 		const rowCount = table.rows.length;
 		for (let i = 0; i < rowCount - 1; i++) {
-			const handle = wrap.createDiv({
-				cls: "bpf-row-handle",
-				attr: {
-					"data-row": String(i),
-					title: "Drag to resize rows",
-				},
+			const handle = iframeCreateDiv(wrap, "bpf-row-handle", {
+				"data-row": String(i),
+				title: "Drag to resize rows",
 			});
 
 			const onDown = (ev: MouseEvent) => {
@@ -718,13 +721,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 				markTableTouched(table);
 				// Unlock overall height so per-row heights control the table.
 				clearElStyles(table, ["height"]);
-				const startHeights = Array.from(table.rows).map((r) =>
-					Math.max(16, Math.round(r.getBoundingClientRect().height)),
-				);
-				for (let ri = 0; ri < startHeights.length; ri++) {
-					const row = table.rows[ri];
-					if (row) applyElStyles(row, { height: `${startHeights[ri]}px` });
-				}
+				const startHeights = measureRowHeightsPx(table);
+				storeRowHeightsPx(table, startHeights);
 				const startY = ev.clientY;
 				const above = i;
 				const below = i + 1;
@@ -756,6 +754,15 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 					doc.removeEventListener("mouseup", onUp);
 					win?.removeEventListener("mousemove", onMove);
 					win?.removeEventListener("mouseup", onUp);
+					const heights = Array.from(table.rows).map((row) => {
+						const h = parseFloat(readElStyle(row, "height"));
+						if (Number.isFinite(h) && h > 0) return Math.round(h);
+						return Math.max(
+							16,
+							Math.round(row.getBoundingClientRect().height),
+						);
+					});
+					storeRowHeightsPx(table, heights);
 					this.setStatus(`Table ${tableIndex + 1} · rows updated`);
 				};
 
@@ -771,9 +778,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		}
 
 		// Right edge: overall table width
-		const rightEdge = wrap.createDiv({
-			cls: "bpf-edge-handle-right",
-			attr: { title: "Drag to resize table width" },
+		const rightEdge = iframeCreateDiv(wrap, "bpf-edge-handle-right", {
+			title: "Drag to resize table width",
 		});
 		{
 			const onDown = (ev: MouseEvent) => {
@@ -810,6 +816,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 					doc.removeEventListener("mouseup", onUp);
 					win?.removeEventListener("mousemove", onMove);
 					win?.removeEventListener("mouseup", onUp);
+					persistColWidthsPct(table);
 					this.setStatus(
 						`Table ${tableIndex + 1} · width ${Math.round(
 							table.getBoundingClientRect().width,
@@ -829,9 +836,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		}
 
 		// Bottom edge: overall table height (centered on the bottom border line)
-		const bottomEdge = wrap.createDiv({
-			cls: "bpf-edge-handle-bottom",
-			attr: { title: "Drag to resize table height" },
+		const bottomEdge = iframeCreateDiv(wrap, "bpf-edge-handle-bottom", {
+			title: "Drag to resize table height",
 		});
 		{
 			const onDown = (ev: MouseEvent) => {
@@ -868,6 +874,15 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 					this.resizing = false;
 					doc.removeEventListener("mousemove", onMove);
 					doc.removeEventListener("mouseup", onUp);
+					const heights = Array.from(table.rows).map((row) => {
+						const h = parseFloat(readElStyle(row, "height"));
+						if (Number.isFinite(h) && h > 0) return Math.round(h);
+						return Math.max(
+							16,
+							Math.round(row.getBoundingClientRect().height),
+						);
+					});
+					storeRowHeightsPx(table, heights);
 					this.setStatus(
 						`Table ${tableIndex + 1} · height ${Math.round(
 							table.getBoundingClientRect().height,
@@ -944,6 +959,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			if (row) applyElStyles(row, { height: `${Math.round(maxH)}px` });
 		}
 		clearElStyles(table, ["height"]);
+		storeRowHeightsPx(table, measureRowHeightsPx(table));
 		this.syncHandlePositions(table);
 		this.setStatus(`Table ${this.activeTableIndex + 1} · row heights equalized`);
 	}

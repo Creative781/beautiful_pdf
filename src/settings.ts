@@ -25,6 +25,7 @@ import {
 } from "./types";
 import { applyFramePreview } from "./frame";
 import { applyHrPreview } from "./hr";
+import { htmlElement } from "./dom-guards";
 import { lineHeightCss, toLineHeightPercent } from "./util";
 
 type SettingsTabId = "page" | "markdown" | "addons";
@@ -90,8 +91,8 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 	/** Obsidian settings scroll pane — Windows resets this on full redraw. */
 	private captureScroll(): { el: HTMLElement; top: number } | null {
-		const pane = this.containerEl.closest(".vertical-tab-content");
-		if (pane.instanceOf(HTMLElement)) {
+		const pane = htmlElement(this.containerEl.closest(".vertical-tab-content"));
+		if (pane) {
 			return { el: pane, top: pane.scrollTop };
 		}
 

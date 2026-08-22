@@ -1,6 +1,7 @@
 /** Per-table column/row sizing saved from the optional layout step. */
 import { applyElStyles, clearElStyles, readElStyle } from "./dom-style";
 import { htmlElement, htmlTable, htmlTableCols } from "./dom-guards";
+import { iframeAppendCol, iframeEnsureColgroup } from "./dom-iframe";
 export type TableAlign = "left" | "center" | "right";
 
 export interface TableLayout {
@@ -49,14 +50,13 @@ export function ensureColgroup(
 ): HTMLTableColElement[] {
 	let group = table.querySelector("colgroup");
 	if (!group) {
-		group = table.createEl("colgroup");
-		table.insertBefore(group, table.firstChild);
+		group = iframeEnsureColgroup(table);
 	}
 	while (group.children.length > colCount) {
 		group.lastElementChild?.remove();
 	}
 	while (group.children.length < colCount) {
-		group.createEl("col");
+		iframeAppendCol(group);
 	}
 	return htmlTableCols(group);
 }
@@ -105,6 +105,19 @@ export function readTableBlockAlign(table: HTMLTableElement): TableAlign {
 }
 
 /**
+ * Drop absolute px floors on cells (not col % widths).
+ * Used when locking table width so column ratios stay intact.
+ */
+export function clearCellPixelConstraints(table: HTMLTableElement): void {
+	for (const row of Array.from(table.rows)) {
+		for (const cell of Array.from(row.cells)) {
+			clearElStyles(cell, ["width", "minWidth", "maxWidth"]);
+			cell.removeAttribute("width");
+		}
+	}
+}
+
+/**
  * Drop absolute px floors on cols/cells left by applyNoteTableLayouts / PDF bake.
  * Those min/max widths block right-edge shrink even when table.style.width falls.
  */
@@ -116,12 +129,7 @@ export function clearColumnPixelConstraints(table: HTMLTableElement): void {
 			col.removeAttribute("width");
 		}
 	}
-	for (const row of Array.from(table.rows)) {
-		for (const cell of Array.from(row.cells)) {
-			clearElStyles(cell, ["width", "minWidth", "maxWidth"]);
-			cell.removeAttribute("width");
-		}
-	}
+	clearCellPixelConstraints(table);
 }
 
 /**
@@ -132,8 +140,8 @@ export function lockTablePixelWidth(table: HTMLTableElement): void {
 	markTableTouched(table);
 	const existing = readElStyle(table, "width");
 	if (existing && existing !== "100%" && existing !== "auto") {
-		// Still clear stale px floors so subsequent shrinks can take effect.
-		clearColumnPixelConstraints(table);
+		// Keep col % ratios; only drop stale cell px floors.
+		clearCellPixelConstraints(table);
 		return;
 	}
 	const w = Math.round(table.getBoundingClientRect().width);
@@ -142,8 +150,9 @@ export function lockTablePixelWidth(table: HTMLTableElement): void {
 		width: `${px}px`,
 		minWidth: `${px}px`,
 		maxWidth: `${px}px`,
+		tableLayout: "fixed",
 	});
-	clearColumnPixelConstraints(table);
+	clearCellPixelConstraints(table);
 }
 
 export function setTablePixelWidth(table: HTMLTableElement, widthPx: number): void {
@@ -183,10 +192,65 @@ export function measureTableWidthPct(table: HTMLTableElement): number | undefine
 	return Math.min(100, Math.max(5, (tw / pw) * 100));
 }
 
+function readStoredColPct(table: HTMLTableElement): number[] | null {
+	const raw = table.dataset.bpfColPct;
+	if (!raw) return null;
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		if (!Array.isArray(parsed)) return null;
+		const nums = parsed.map((v) => Number(v));
+		if (nums.some((n) => !Number.isFinite(n) || n <= 0)) return null;
+		return normalizePercents(nums);
+	} catch {
+		return null;
+	}
+}
+
+function storeColPct(table: HTMLTableElement, pct: number[]): void {
+	table.dataset.bpfColPct = JSON.stringify(normalizePercents(pct));
+}
+
+/** Read per-row heights from saved state or inline styles. */
+export function measureRowHeightsPx(table: HTMLTableElement): number[] {
+	const raw = table.dataset.bpfRowPx;
+	if (raw) {
+		try {
+			const parsed = JSON.parse(raw) as unknown;
+			if (Array.isArray(parsed) && parsed.length === table.rows.length) {
+				return parsed.map((v) =>
+					Math.max(16, Math.round(Number(v) || 16)),
+				);
+			}
+		} catch {
+			/* fall through */
+		}
+	}
+	return Array.from(table.rows).map((row) => {
+		const h = parseFloat(readElStyle(row, "height"));
+		if (Number.isFinite(h) && h > 0) return Math.round(h);
+		return Math.max(16, Math.round(row.getBoundingClientRect().height));
+	});
+}
+
+export function storeRowHeightsPx(
+	table: HTMLTableElement,
+	heights: number[],
+): void {
+	const rounded = heights.map((h) => Math.max(16, Math.round(h)));
+	table.dataset.bpfRowPx = JSON.stringify(rounded);
+	for (let i = 0; i < table.rows.length; i++) {
+		const row = table.rows[i];
+		const h = rounded[i];
+		if (row && h != null) applyElStyles(row, { height: `${h}px` });
+	}
+}
+
 /** Read current column widths as percentages of the table's client width. */
 export function measureColWidthsPct(table: HTMLTableElement): number[] {
 	const n = tableColumnCount(table);
 	if (n === 0) return [];
+	const stored = readStoredColPct(table);
+	if (stored && stored.length === n) return stored;
 	const cols = ensureColgroup(table, n);
 	const tableW = Math.max(1, table.getBoundingClientRect().width);
 	const widths: number[] = [];
@@ -205,6 +269,13 @@ export function measureColWidthsPct(table: HTMLTableElement): number[] {
 		}
 	}
 	return normalizePercents(widths);
+}
+
+/** Snapshot column % from DOM and persist (call after each column drag). */
+export function persistColWidthsPct(table: HTMLTableElement): number[] {
+	const pct = measureColWidthsPct(table);
+	storeColPct(table, pct);
+	return pct;
 }
 
 function cellAtColumn(
@@ -232,13 +303,15 @@ export function applyColWidthsPct(
 	colWidthsPct: number[],
 ): void {
 	lockTablePixelWidth(table);
-	clearColumnPixelConstraints(table);
+	clearCellPixelConstraints(table);
 	const n = Math.max(tableColumnCount(table), colWidthsPct.length);
 	const pct = normalizePercents(
 		colWidthsPct.length === n
 			? colWidthsPct
 			: padOrTrim(colWidthsPct, n, 100 / Math.max(1, n)),
 	);
+	storeColPct(table, pct);
+	applyElStyles(table, { tableLayout: "fixed" });
 	const cols = ensureColgroup(table, n);
 	for (let i = 0; i < n; i++) {
 		applyElStyles(cols[i], { width: `${pct[i]}%` });
@@ -257,13 +330,7 @@ export function applyRowHeightsPx(
 	rowHeightsPx: number[] | undefined,
 ): void {
 	if (!rowHeightsPx?.length) return;
-	const rows = Array.from(table.rows);
-	for (let i = 0; i < rows.length; i++) {
-		const h = rowHeightsPx[i];
-		if (h != null && h > 0) {
-			applyElStyles(rows[i], { height: `${h}px` });
-		}
-	}
+	storeRowHeightsPx(table, rowHeightsPx);
 }
 
 /**
@@ -478,9 +545,10 @@ function tableHasCustomSizing(table: HTMLTableElement): boolean {
  * then strips chrome so leftover editor nodes are not counted as tables.
  */
 export function captureNoteTableLayouts(root: HTMLElement): NoteTableLayouts {
-	const tablesBefore = Array.from(root.querySelectorAll("table")).filter(
-		(el): el is HTMLTableElement => el.instanceOf(HTMLTableElement),
-	);
+	const tablesBefore = Array.from(root.querySelectorAll("table")).flatMap((el) => {
+		const table = htmlTable(el);
+		return table ? [table] : [];
+	});
 	const snapshots: TableLayout[] = [];
 	tablesBefore.forEach((table, index) => {
 		if (!tableHasCustomSizing(table)) return;
@@ -489,11 +557,7 @@ export function captureNoteTableLayouts(root: HTMLElement): NoteTableLayouts {
 			(r) => !!readElStyle(r, "height"),
 		);
 		const heightPx = parseFloat(readElStyle(table, "height"));
-		const rowHeightsPx = Array.from(table.rows).map((row) => {
-			const h = parseFloat(readElStyle(row, "height"));
-			if (Number.isFinite(h) && h > 0) return h;
-			return Math.round(row.getBoundingClientRect().height);
-		});
+		const rowHeightsPx = measureRowHeightsPx(table);
 		const widthPct = measureTableWidthPct(table);
 		const align = readTableBlockAlign(table);
 		snapshots.push({
@@ -534,6 +598,8 @@ export function resetTableSizing(table: HTMLTableElement): void {
 		"marginRight",
 	]);
 	delete table.dataset.bpfAlign;
+	delete table.dataset.bpfColPct;
+	delete table.dataset.bpfRowPx;
 	const wrap = table.parentElement;
 	if (wrap?.classList.contains("bpf-table-wrap")) {
 		wrap.dataset.align = "left";
