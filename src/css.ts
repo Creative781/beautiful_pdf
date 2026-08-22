@@ -1,5 +1,6 @@
 import type { ElementStyle, Profile } from "./types";
 import { frameStyleExtras } from "./frame";
+import { hrStyleExtras } from "./hr";
 import { lineHeightCss } from "./util";
 
 function rule(selector: string, style: ElementStyle, extra: string[] = []): string {
@@ -142,11 +143,7 @@ pre > button,
 }
 `);
 
-	parts.push(rule("hr", e.hr, [
-		"border: none",
-		`border-top: 1px solid ${e.hr.color}`,
-		"height: 0",
-	]));
+	parts.push(rule("hr", e.hr, hrStyleExtras(e.hr)));
 
 	parts.push(`
 table {
@@ -165,7 +162,12 @@ table {
 /* User-adjusted tables: width comes from inline style / layout CSS */
 table.bpf-table-sized {
   table-layout: fixed !important;
-  max-width: 100%;
+  /* Do not clamp here — inline width/min/max pin the editor/PDF size. */
+  max-width: none;
+}
+table.bpf-table-sized th,
+table.bpf-table-sized td {
+  min-width: 0;
 }
 th, td {
   border: 1px solid #bbb;
@@ -248,6 +250,40 @@ span.image-embed img {
 `);
 
 	parts.push(`
+.writing-asset-embed { margin: 8pt 0; }
+.writing-asset-embed img { max-width: 100%; height: auto; }
+.writing-asset-card {
+  border: 1px solid #ccc;
+  border-radius: 4pt;
+  padding: 6pt 8pt;
+  margin: 6pt 0;
+}
+.writing-asset-line { margin: 2pt 0; display: flex; align-items: center; flex-wrap: wrap; gap: 0.35em 0.45em; }
+.writing-asset-lead { display: inline-flex; align-items: center; gap: 3pt; }
+.writing-asset-clip { display: inline-flex; }
+.writing-asset-clip svg { width: 9pt; height: 9pt; }
+.writing-asset-line-desc, .writing-asset-caption {
+  color: #555;
+  font-size: 9pt;
+}
+.writing-asset-badge {
+  display: inline-block;
+  padding: 0 5pt;
+  border-radius: 8pt;
+  font-size: 8pt;
+  font-weight: 600;
+  line-height: 1.6;
+  color: #fff;
+  background: #7c5cbf;
+  border: none;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.writing-asset-line-file {
+  color: #888;
+  font-size: 8pt;
+}
+.writing-asset-print-info { display: none !important; }
 .frontmatter, .metadata-container, .mod-header .inline-title { display: none !important; }
 .collapse-indicator, .clickable-icon { display: none !important; }
 .copy-code-button, .code-block-buttons, .edit-block-button { display: none !important; }
@@ -327,81 +363,4 @@ function orderedListAsHeadingCss(profile: Profile): string {
 	}
 
 	return lines.join("\n");
-}
-
-export function headerFooterTemplates(profile: Profile): {
-	displayHeaderFooter: boolean;
-	headerTemplate: string;
-	footerTemplate: string;
-} {
-	const p = profile.page;
-	const showHeader = Boolean(p.headerText?.trim()) || p.pageNumber.startsWith("top");
-	const showFooter =
-		Boolean(p.footerText?.trim()) ||
-		p.pageNumber.startsWith("bottom") ||
-		p.pageNumber !== "none";
-
-	const pageSpan = (format: string) => {
-		// Chromium print templates use special classes for page numbers
-		const html = format
-			.replace(/\{page\}/g, `<span class="pageNumber"></span>`)
-			.replace(/\{pages\}/g, `<span class="totalPages"></span>`);
-		return html;
-	};
-
-	const baseStyle =
-		"font-size: 9px; font-family: sans-serif; color: #666; width: 100%; padding: 0 8mm; box-sizing: border-box;";
-
-	let headerTemplate = "<span></span>";
-	let footerTemplate = "<span></span>";
-
-	if (p.pageNumber === "top-center" || p.headerText) {
-		const num =
-			p.pageNumber === "top-center"
-				? `<div style="text-align:center">${pageSpan(p.pageNumberFormat)}</div>`
-				: "";
-		const text = p.headerText
-			? `<div style="text-align:${p.headerAlign ?? "left"}">${escapeHtml(p.headerText)}</div>`
-			: "";
-		headerTemplate = `<div style="${baseStyle}">${text}${num}</div>`;
-	}
-
-	if (p.pageNumber.startsWith("bottom") || p.footerText) {
-		const numAlign =
-			p.pageNumber === "bottom-right"
-				? "right"
-				: p.pageNumber === "bottom-center"
-					? "center"
-					: "left";
-		const num =
-			p.pageNumber !== "none" && p.pageNumber.startsWith("bottom")
-				? `<div style="text-align:${numAlign}">${pageSpan(p.pageNumberFormat)}</div>`
-				: "";
-		const text = p.footerText
-			? `<div style="text-align:${p.footerAlign ?? "center"}">${escapeHtml(p.footerText)}</div>`
-			: "";
-		footerTemplate = `<div style="${baseStyle}">${text}${num}</div>`;
-	}
-
-	if (p.pageNumber === "none" && !p.headerText && !p.footerText) {
-		return {
-			displayHeaderFooter: false,
-			headerTemplate: " ",
-			footerTemplate: " ",
-		};
-	}
-
-	return {
-		displayHeaderFooter: showHeader || showFooter,
-		headerTemplate,
-		footerTemplate,
-	};
-}
-
-function escapeHtml(s: string): string {
-	return s
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;");
 }

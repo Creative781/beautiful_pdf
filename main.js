@@ -27,10 +27,173 @@ __export(main_exports, {
   default: () => BeautifulPdfPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 
 // src/export.ts
 var import_obsidian2 = require("obsidian");
+
+// src/placeholders.ts
+function headerFooterContext(app, file, title) {
+  var _a, _b, _c, _d;
+  const fm = (_b = (_a = app.metadataCache.getFileCache(file)) == null ? void 0 : _a.frontmatter) != null ? _b : {};
+  return {
+    title,
+    filename: file.basename,
+    folder: (_d = (_c = file.parent) == null ? void 0 : _c.name) != null ? _d : "",
+    vault: app.vault.getName(),
+    date: formatDay(/* @__PURE__ */ new Date()),
+    ctime: formatDay(new Date(file.stat.ctime)),
+    mtime: formatDay(new Date(file.stat.mtime)),
+    properties: frontmatterMap(fm)
+  };
+}
+function headerFooterTemplates(profile, ctx) {
+  const p = profile.page;
+  const enable = profile.special.enablePlaceholders !== false;
+  const headerSlots = [
+    { text: p.headerLeft, styleKey: p.headerLeftStyle },
+    { text: p.headerCenter, styleKey: p.headerCenterStyle },
+    { text: p.headerRight, styleKey: p.headerRightStyle }
+  ];
+  const footerSlots = [
+    { text: p.footerLeft, styleKey: p.footerLeftStyle },
+    { text: p.footerCenter, styleKey: p.footerCenterStyle },
+    { text: p.footerRight, styleKey: p.footerRightStyle }
+  ];
+  const showHeader = headerSlots.some((s) => {
+    var _a;
+    return (_a = s.text) == null ? void 0 : _a.trim();
+  });
+  const showFooter = footerSlots.some((s) => {
+    var _a;
+    return (_a = s.text) == null ? void 0 : _a.trim();
+  });
+  if (!showHeader && !showFooter) {
+    return {
+      displayHeaderFooter: false,
+      headerTemplate: " ",
+      footerTemplate: " "
+    };
+  }
+  return {
+    displayHeaderFooter: true,
+    headerTemplate: showHeader ? threeColumnTemplate(headerSlots, profile, ctx, enable) : "<span></span>",
+    footerTemplate: showFooter ? threeColumnTemplate(footerSlots, profile, ctx, enable) : "<span></span>"
+  };
+}
+function threeColumnTemplate(slots, profile, ctx, enable) {
+  const aligns = ["left", "center", "right"];
+  const cells = slots.map((slot, i) => {
+    var _a, _b;
+    const html = applyPlaceholders((_a = slot.text) != null ? _a : "", ctx, enable);
+    const style = slotStyleCss(profile, (_b = slot.styleKey) != null ? _b : "");
+    const inner = style ? `<span style="${style}">${html}</span>` : html;
+    return `<td style="width:33%;text-align:${aligns[i]};vertical-align:middle;padding:0 4px;">${inner}</td>`;
+  });
+  const base = "font-size:9px;font-family:sans-serif;color:#666;width:100%;padding:0 8mm;box-sizing:border-box;";
+  return `<div style="${base}"><table style="width:100%;border-collapse:collapse;"><tr>${cells.join("")}</tr></table></div>`;
+}
+function slotStyleCss(profile, key) {
+  if (!key)
+    return "";
+  const style = profile.elements[key];
+  if (!style)
+    return "";
+  const px = Math.max(7, Math.round(style.fontSize * 96 / 72));
+  return [
+    `font-family:${cssAttr(style.fontFamily)}`,
+    `font-size:${px}px`,
+    `font-weight:${cssAttr(String(style.fontWeight))}`,
+    `color:${cssAttr(style.color)}`
+  ].join(";");
+}
+function cssAttr(value) {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+function applyPlaceholders(raw, ctx, enable) {
+  if (!raw)
+    return "";
+  if (!enable)
+    return escapeHtml(raw);
+  const normalized = raw.replace(/\{*\{\{\s*page\s*\}\}\}*/g, "{{page}}").replace(/\{*\{\{\s*pages\s*\}\}\}*/g, "{{pages}}").replace(/(?<!\{)\{page\}(?!\})/g, "{{page}}").replace(/(?<!\{)\{pages\}(?!\})/g, "{{pages}}");
+  let out = "";
+  let last = 0;
+  const re = /\{\{\s*([^}]+?)\s*\}\}/g;
+  let match;
+  while (match = re.exec(normalized)) {
+    out += escapeHtml(normalized.slice(last, match.index));
+    out += placeholderToHtml(match[1], ctx);
+    last = match.index + match[0].length;
+  }
+  out += escapeHtml(normalized.slice(last));
+  return out;
+}
+function placeholderToHtml(name, ctx) {
+  var _a, _b;
+  const key = name.trim();
+  const lower = key.toLowerCase();
+  switch (lower) {
+    case "page":
+      return `<span class="pageNumber"></span>`;
+    case "pages":
+      return `<span class="totalPages"></span>`;
+    case "date":
+      return escapeHtml(ctx.date);
+    case "title":
+      return escapeHtml(ctx.title);
+    case "filename":
+      return escapeHtml(ctx.filename);
+    case "folder":
+      return escapeHtml(ctx.folder);
+    case "vault":
+      return escapeHtml(ctx.vault);
+    case "ctime":
+      return escapeHtml(ctx.ctime);
+    case "mtime":
+      return escapeHtml(ctx.mtime);
+    default:
+      return escapeHtml((_b = (_a = ctx.properties[key]) != null ? _a : ctx.properties[lower]) != null ? _b : "");
+  }
+}
+function frontmatterMap(fm) {
+  const out = {};
+  for (const [k, v] of Object.entries(fm)) {
+    if (k === "position")
+      continue;
+    if (v && typeof v === "object" && !Array.isArray(v))
+      continue;
+    const s = fmString(v);
+    if (!s)
+      continue;
+    out[k] = s;
+    out[k.toLowerCase()] = s;
+  }
+  return out;
+}
+function fmString(value) {
+  if (value == null)
+    return "";
+  if (typeof value === "string")
+    return value.trim();
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v).trim()).filter(Boolean).join(", ");
+  }
+  return String(value).trim();
+}
+function formatDay(d) {
+  if (Number.isNaN(d.getTime()))
+    return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// src/render.ts
+var import_obsidian = require("obsidian");
 
 // src/frame.ts
 var DEFAULT_BG = {
@@ -103,6 +266,68 @@ function applyFramePreview(sample, kind, style) {
       "--bpf-frame-accent": accent
     });
   }
+}
+
+// src/hr.ts
+function hrStyleExtras(style) {
+  var _a;
+  const preset = (_a = style.hrPreset) != null ? _a : "solid";
+  const color = style.color || "#cccccc";
+  const base = [
+    "border: none",
+    "background: transparent",
+    "background-color: transparent"
+  ];
+  switch (preset) {
+    case "thick":
+      return [...base, `border-top: 2.5px solid ${color}`, "height: 0"];
+    case "double":
+      return [...base, `border-top: 3px double ${color}`, "height: 0"];
+    case "dashed":
+      return [...base, `border-top: 1px dashed ${color}`, "height: 0"];
+    case "fade":
+      return [
+        ...base,
+        "border-top: none",
+        "height: 1px",
+        `background: linear-gradient(to right, transparent 0%, ${color} 22%, ${color} 78%, transparent 100%)`
+      ];
+    case "short":
+      return [
+        ...base,
+        "border-top: none",
+        "height: 2px",
+        "width: 28%",
+        "max-width: 120pt",
+        "margin-left: auto",
+        "margin-right: auto",
+        `background: ${color}`,
+        `background-color: ${color}`
+      ];
+    case "solid":
+    default:
+      return [...base, `border-top: 1px solid ${color}`, "height: 0"];
+  }
+}
+function applyHrPreview(sample, style) {
+  var _a;
+  const preset = (_a = style.hrPreset) != null ? _a : "solid";
+  for (const id of [
+    "is-hr",
+    "is-hr-solid",
+    "is-hr-thick",
+    "is-hr-double",
+    "is-hr-dashed",
+    "is-hr-fade",
+    "is-hr-short"
+  ]) {
+    sample.removeClass(id);
+  }
+  sample.addClass("is-hr");
+  sample.addClass(`is-hr-${preset}`);
+  sample.empty();
+  const line = sample.createDiv({ cls: "beautiful-pdf-hr-line" });
+  line.style.setProperty("--bpf-hr-color", style.color || "#cccccc");
 }
 
 // src/util.ts
@@ -256,11 +481,7 @@ pre > button,
   pointer-events: none !important;
 }
 `);
-  parts.push(rule("hr", e.hr, [
-    "border: none",
-    `border-top: 1px solid ${e.hr.color}`,
-    "height: 0"
-  ]));
+  parts.push(rule("hr", e.hr, hrStyleExtras(e.hr)));
   parts.push(`
 table {
   width: auto;
@@ -278,7 +499,12 @@ table {
 /* User-adjusted tables: width comes from inline style / layout CSS */
 table.bpf-table-sized {
   table-layout: fixed !important;
-  max-width: 100%;
+  /* Do not clamp here \u2014 inline width/min/max pin the editor/PDF size. */
+  max-width: none;
+}
+table.bpf-table-sized th,
+table.bpf-table-sized td {
+  min-width: 0;
 }
 th, td {
   border: 1px solid #bbb;
@@ -355,6 +581,40 @@ span.image-embed img {
 }
 `);
   parts.push(`
+.writing-asset-embed { margin: 8pt 0; }
+.writing-asset-embed img { max-width: 100%; height: auto; }
+.writing-asset-card {
+  border: 1px solid #ccc;
+  border-radius: 4pt;
+  padding: 6pt 8pt;
+  margin: 6pt 0;
+}
+.writing-asset-line { margin: 2pt 0; display: flex; align-items: center; flex-wrap: wrap; gap: 0.35em 0.45em; }
+.writing-asset-lead { display: inline-flex; align-items: center; gap: 3pt; }
+.writing-asset-clip { display: inline-flex; }
+.writing-asset-clip svg { width: 9pt; height: 9pt; }
+.writing-asset-line-desc, .writing-asset-caption {
+  color: #555;
+  font-size: 9pt;
+}
+.writing-asset-badge {
+  display: inline-block;
+  padding: 0 5pt;
+  border-radius: 8pt;
+  font-size: 8pt;
+  font-weight: 600;
+  line-height: 1.6;
+  color: #fff;
+  background: #7c5cbf;
+  border: none;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.writing-asset-line-file {
+  color: #888;
+  font-size: 8pt;
+}
+.writing-asset-print-info { display: none !important; }
 .frontmatter, .metadata-container, .mod-header .inline-title { display: none !important; }
 .collapse-indicator, .clickable-icon { display: none !important; }
 .copy-code-button, .code-block-buttons, .edit-block-button { display: none !important; }
@@ -425,48 +685,6 @@ function orderedListAsHeadingCss(profile) {
   }
   return lines.join("\n");
 }
-function headerFooterTemplates(profile) {
-  var _a, _b, _c, _d;
-  const p = profile.page;
-  const showHeader = Boolean((_a = p.headerText) == null ? void 0 : _a.trim()) || p.pageNumber.startsWith("top");
-  const showFooter = Boolean((_b = p.footerText) == null ? void 0 : _b.trim()) || p.pageNumber.startsWith("bottom") || p.pageNumber !== "none";
-  const pageSpan = (format) => {
-    const html = format.replace(/\{page\}/g, `<span class="pageNumber"></span>`).replace(/\{pages\}/g, `<span class="totalPages"></span>`);
-    return html;
-  };
-  const baseStyle = "font-size: 9px; font-family: sans-serif; color: #666; width: 100%; padding: 0 8mm; box-sizing: border-box;";
-  let headerTemplate = "<span></span>";
-  let footerTemplate = "<span></span>";
-  if (p.pageNumber === "top-center" || p.headerText) {
-    const num = p.pageNumber === "top-center" ? `<div style="text-align:center">${pageSpan(p.pageNumberFormat)}</div>` : "";
-    const text = p.headerText ? `<div style="text-align:${(_c = p.headerAlign) != null ? _c : "left"}">${escapeHtml(p.headerText)}</div>` : "";
-    headerTemplate = `<div style="${baseStyle}">${text}${num}</div>`;
-  }
-  if (p.pageNumber.startsWith("bottom") || p.footerText) {
-    const numAlign = p.pageNumber === "bottom-right" ? "right" : p.pageNumber === "bottom-center" ? "center" : "left";
-    const num = p.pageNumber !== "none" && p.pageNumber.startsWith("bottom") ? `<div style="text-align:${numAlign}">${pageSpan(p.pageNumberFormat)}</div>` : "";
-    const text = p.footerText ? `<div style="text-align:${(_d = p.footerAlign) != null ? _d : "center"}">${escapeHtml(p.footerText)}</div>` : "";
-    footerTemplate = `<div style="${baseStyle}">${text}${num}</div>`;
-  }
-  if (p.pageNumber === "none" && !p.headerText && !p.footerText) {
-    return {
-      displayHeaderFooter: false,
-      headerTemplate: " ",
-      footerTemplate: " "
-    };
-  }
-  return {
-    displayHeaderFooter: showHeader || showFooter,
-    headerTemplate,
-    footerTemplate
-  };
-}
-function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-// src/render.ts
-var import_obsidian = require("obsidian");
 
 // src/table-layout.ts
 function tableColumnCount(table) {
@@ -509,19 +727,74 @@ function markTableTouched(table) {
   table.dataset.bpfTouched = "1";
   table.classList.add("bpf-table-sized");
 }
+function applyTableBlockAlign(table, align) {
+  markTableTouched(table);
+  const a = align === "center" || align === "right" ? align : "left";
+  table.dataset.bpfAlign = a;
+  if (a === "center") {
+    table.style.marginLeft = "auto";
+    table.style.marginRight = "auto";
+  } else if (a === "right") {
+    table.style.marginLeft = "auto";
+    table.style.marginRight = "0";
+  } else {
+    table.style.marginLeft = "0";
+    table.style.marginRight = "auto";
+  }
+  const wrap = table.parentElement;
+  if (wrap == null ? void 0 : wrap.classList.contains("bpf-table-wrap")) {
+    wrap.dataset.align = a;
+  }
+}
+function readTableBlockAlign(table) {
+  const raw = table.dataset.bpfAlign;
+  if (raw === "center" || raw === "right")
+    return raw;
+  return "left";
+}
+function clearColumnPixelConstraints(table) {
+  const group = table.querySelector("colgroup");
+  if (group) {
+    for (const col of Array.from(group.children)) {
+      col.style.minWidth = "";
+      col.style.maxWidth = "";
+      col.removeAttribute("width");
+      if (col.style.width && !col.style.width.endsWith("%")) {
+        col.style.width = "";
+      }
+    }
+  }
+  for (const row of Array.from(table.rows)) {
+    for (const cell of Array.from(row.cells)) {
+      cell.style.width = "";
+      cell.style.minWidth = "";
+      cell.style.maxWidth = "";
+      cell.removeAttribute("width");
+    }
+  }
+}
 function lockTablePixelWidth(table) {
   markTableTouched(table);
   const existing = table.style.width;
-  if (existing && existing !== "100%" && existing !== "auto")
+  if (existing && existing !== "100%" && existing !== "auto") {
+    clearColumnPixelConstraints(table);
     return;
+  }
   const w = Math.round(table.getBoundingClientRect().width);
-  table.style.width = `${Math.max(40, w)}px`;
-  table.style.maxWidth = "none";
+  const px = Math.max(40, w);
+  table.style.width = `${px}px`;
+  table.style.minWidth = `${px}px`;
+  table.style.maxWidth = `${px}px`;
+  clearColumnPixelConstraints(table);
 }
 function setTablePixelWidth(table, widthPx) {
   markTableTouched(table);
-  table.style.width = `${Math.max(40, Math.round(widthPx))}px`;
-  table.style.maxWidth = "none";
+  const px = Math.max(40, Math.round(widthPx));
+  table.style.width = `${px}px`;
+  table.style.minWidth = `${px}px`;
+  table.style.maxWidth = `${px}px`;
+  table.style.tableLayout = "fixed";
+  clearColumnPixelConstraints(table);
 }
 function setTablePixelHeight(table, heightPx) {
   markTableTouched(table);
@@ -535,7 +808,9 @@ function measureTableWidthPct(table) {
   const parent = layoutParent(table);
   if (!parent)
     return void 0;
-  const pw = parent.clientWidth || parent.getBoundingClientRect().width;
+  const style = getComputedStyle(parent);
+  const padX = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+  const pw = (parent.clientWidth || parent.getBoundingClientRect().width) - padX;
   if (pw <= 1)
     return void 0;
   const tw = table.getBoundingClientRect().width;
@@ -579,6 +854,7 @@ function cellAtColumn(table, rowIndex, colIndex) {
 }
 function applyColWidthsPct(table, colWidthsPct) {
   lockTablePixelWidth(table);
+  clearColumnPixelConstraints(table);
   const n = Math.max(tableColumnCount(table), colWidthsPct.length);
   const pct = normalizePercents(
     colWidthsPct.length === n ? colWidthsPct : padOrTrim(colWidthsPct, n, 100 / Math.max(1, n))
@@ -586,6 +862,8 @@ function applyColWidthsPct(table, colWidthsPct) {
   const cols = ensureColgroup(table, n);
   for (let i = 0; i < n; i++) {
     cols[i].style.width = `${pct[i]}%`;
+    cols[i].style.minWidth = "";
+    cols[i].style.maxWidth = "";
   }
 }
 function padOrTrim(arr, n, fill) {
@@ -596,7 +874,7 @@ function padOrTrim(arr, n, fill) {
 }
 function stripEditorChrome(root) {
   root.querySelectorAll(
-    ".bpf-col-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom, .bpf-table-hint"
+    ".bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom, .bpf-table-hint"
   ).forEach((el2) => el2.remove());
   root.querySelectorAll(".bpf-cell-selected").forEach((el2) => {
     el2.classList.remove("bpf-cell-selected");
@@ -611,26 +889,30 @@ function stripEditorChrome(root) {
     wrap.remove();
   });
 }
-function tableLayoutsToCss(layouts) {
+function tableLayoutsToCss(layouts, contentWidthMm2) {
   var _a, _b;
   if (!((_a = layouts == null ? void 0 : layouts.tables) == null ? void 0 : _a.length))
     return "";
-  const lines = [];
+  const pageMm = Math.max(40, contentWidthMm2);
+  const lines = [
+    `html, body, .markdown-preview-view { width:${pageMm}mm !important; max-width:${pageMm}mm !important; margin:0 !important; box-sizing:border-box !important; }`
+  ];
   for (const layout of layouts.tables) {
     const t = `table[data-bpf-i="${layout.index}"]`;
-    const widthRule = layout.widthPct != null && layout.widthPct > 0 ? `width:${Number(layout.widthPct.toFixed(4))}% !important;` : "";
-    const heightRule = layout.heightPx != null && layout.heightPx > 0 ? `height:${Math.round(layout.heightPx)}px !important;` : "";
+    const tableMm = layout.widthPct != null && layout.widthPct > 0 ? Math.min(100, Math.max(5, layout.widthPct)) / 100 * pageMm : pageMm;
+    const heightRule = layout.heightPx != null && layout.heightPx > 0 ? `height:${pxToMm(layout.heightPx)}mm !important;` : "";
     lines.push(
-      `${t}{table-layout:fixed !important;max-width:100% !important;${widthRule}${heightRule}}`
+      `${t}{table-layout:fixed !important;width:${fmtMm(tableMm)}mm !important;min-width:${fmtMm(tableMm)}mm !important;max-width:${fmtMm(tableMm)}mm !important;${heightRule}${alignRule(layout.align)}}`
     );
     const pct = normalizePercents(layout.colWidthsPct || []);
     pct.forEach((p, i) => {
-      const w = `${Number(p.toFixed(4))}%`;
+      const colMm = p / 100 * tableMm;
+      const w = `${fmtMm(colMm)}mm`;
       lines.push(
-        `${t} > colgroup > col:nth-child(${i + 1}){width:${w} !important;}`
+        `${t} > colgroup > col:nth-child(${i + 1}){width:${w} !important;min-width:${w} !important;max-width:${w} !important;}`
       );
       lines.push(
-        `${t} > thead > tr > *:nth-child(${i + 1}),${t} > tbody > tr:first-child > *:nth-child(${i + 1}),${t} > tr:first-child > *:nth-child(${i + 1}){width:${w} !important;}`
+        `${t} th:nth-child(${i + 1}), ${t} td:nth-child(${i + 1}),${t} > thead > tr > *:nth-child(${i + 1}),${t} > tbody > tr > *:nth-child(${i + 1}),${t} > tr > *:nth-child(${i + 1}){width:${w} !important;min-width:${w} !important;max-width:${w} !important;box-sizing:border-box !important;}`
       );
     });
     if ((_b = layout.rowHeightsPx) == null ? void 0 : _b.length) {
@@ -638,17 +920,39 @@ function tableLayoutsToCss(layouts) {
         if (h == null || h <= 0)
           return;
         lines.push(
-          `${t} tr[data-bpf-r="${i}"]{height:${Math.round(h)}px !important;}`
+          `${t} tr[data-bpf-r="${i}"], ${t} tr:nth-child(${i + 1}){height:${pxToMm(h)}mm !important;}`
         );
       });
     }
   }
   return lines.join("\n");
 }
-function applyNoteTableLayouts(root, layouts) {
+function pxToMm(px) {
+  return fmtMm(px / 96 * 25.4);
+}
+function fmtMm(mm) {
+  return Number(mm.toFixed(3)).toString();
+}
+function alignRule(align) {
+  if (align === "center") {
+    return "margin-left:auto !important;margin-right:auto !important;";
+  }
+  if (align === "right") {
+    return "margin-left:auto !important;margin-right:0 !important;";
+  }
+  if (align === "left") {
+    return "margin-left:0 !important;margin-right:auto !important;";
+  }
+  return "";
+}
+function applyNoteTableLayouts(root, layouts, contentWidthPx3) {
   var _a, _b, _c;
   if (!((_a = layouts == null ? void 0 : layouts.tables) == null ? void 0 : _a.length))
     return;
+  const parentW = Math.max(
+    40,
+    contentWidthPx3 != null ? contentWidthPx3 : root.clientWidth || root.getBoundingClientRect().width || 794
+  );
   const tables = Array.from(root.querySelectorAll("table"));
   for (const layout of layouts.tables) {
     const table = tables[layout.index];
@@ -656,22 +960,49 @@ function applyNoteTableLayouts(root, layouts) {
       continue;
     table.classList.add("bpf-table-sized");
     table.setAttribute("data-bpf-i", String(layout.index));
+    table.style.tableLayout = "fixed";
+    table.style.boxSizing = "border-box";
+    const tablePx = layout.widthPct != null && layout.widthPct > 0 ? Math.max(
+      40,
+      Math.min(100, Math.max(5, layout.widthPct)) / 100 * parentW
+    ) : Math.max(40, table.getBoundingClientRect().width || parentW);
+    const tablePxR = Math.round(tablePx);
+    table.style.width = `${tablePxR}px`;
+    table.style.minWidth = `${tablePxR}px`;
+    table.style.maxWidth = `${tablePxR}px`;
     if ((_b = layout.colWidthsPct) == null ? void 0 : _b.length) {
       const n = Math.max(tableColumnCount(table), layout.colWidthsPct.length);
       const pct = normalizePercents(
         layout.colWidthsPct.length === n ? layout.colWidthsPct : padOrTrim(layout.colWidthsPct, n, 100 / Math.max(1, n))
       );
       const cols = ensureColgroup(table, n);
+      const colPx = pct.map((p) => Math.max(8, Math.round(p / 100 * tablePx)));
       for (let i = 0; i < n; i++) {
-        cols[i].style.width = `${pct[i]}%`;
-        cols[i].setAttribute("width", `${pct[i]}%`);
+        const w = `${colPx[i]}px`;
+        cols[i].style.width = w;
+        cols[i].style.minWidth = w;
+        cols[i].style.maxWidth = w;
+        cols[i].setAttribute("width", String(colPx[i]));
       }
-    }
-    if (layout.widthPct != null && layout.widthPct > 0) {
-      const w = `${Math.min(100, Math.max(5, layout.widthPct))}%`;
-      table.style.width = w;
-      table.style.maxWidth = "100%";
-      table.style.tableLayout = "fixed";
+      for (const row of Array.from(table.rows)) {
+        let colAt = 0;
+        for (const cell of Array.from(row.cells)) {
+          const span = cell.colSpan || 1;
+          let spanPx = 0;
+          for (let k = 0; k < span && colAt + k < n; k++) {
+            spanPx += colPx[colAt + k];
+          }
+          if (spanPx > 0) {
+            const w = `${spanPx}px`;
+            cell.style.width = w;
+            cell.style.minWidth = w;
+            cell.style.maxWidth = w;
+            cell.style.boxSizing = "border-box";
+            cell.setAttribute("width", String(spanPx));
+          }
+          colAt += span;
+        }
+      }
     }
     if ((_c = layout.rowHeightsPx) == null ? void 0 : _c.length) {
       const rows = Array.from(table.rows);
@@ -679,12 +1010,15 @@ function applyNoteTableLayouts(root, layouts) {
         rows[i].setAttribute("data-bpf-r", String(i));
         const h = layout.rowHeightsPx[i];
         if (h != null && h > 0) {
-          rows[i].style.height = `${h}px`;
+          rows[i].style.height = `${Math.round(h)}px`;
         }
       }
     }
     if (layout.heightPx != null && layout.heightPx > 0) {
       table.style.height = `${Math.round(layout.heightPx)}px`;
+    }
+    if (layout.align) {
+      applyTableBlockAlign(table, layout.align);
     }
   }
 }
@@ -692,6 +1026,8 @@ function tableHasCustomSizing(table) {
   if (table.dataset.bpfTouched === "1")
     return true;
   if (table.classList.contains("bpf-table-sized"))
+    return true;
+  if (table.dataset.bpfAlign && table.dataset.bpfAlign !== "left")
     return true;
   if (table.style.width || table.style.height)
     return true;
@@ -719,12 +1055,14 @@ function captureNoteTableLayouts(root) {
       return Math.round(row.getBoundingClientRect().height);
     });
     const widthPct = measureTableWidthPct(table);
+    const align = readTableBlockAlign(table);
     snapshots.push({
       index,
       colWidthsPct,
       rowHeightsPx: hasRowOverride || Number.isFinite(heightPx) && heightPx > 0 ? rowHeightsPx : void 0,
       widthPct,
-      heightPx: Number.isFinite(heightPx) && heightPx > 0 ? heightPx : void 0
+      heightPx: Number.isFinite(heightPx) && heightPx > 0 ? heightPx : void 0,
+      align
     });
   });
   stripEditorChrome(root);
@@ -742,8 +1080,17 @@ function resetTableSizing(table) {
   table.removeAttribute("data-bpf-i");
   table.style.width = "";
   table.style.height = "";
+  table.style.minWidth = "";
   table.style.maxWidth = "";
   table.style.tableLayout = "";
+  table.style.marginLeft = "";
+  table.style.marginRight = "";
+  delete table.dataset.bpfAlign;
+  const wrap = table.parentElement;
+  if (wrap == null ? void 0 : wrap.classList.contains("bpf-table-wrap")) {
+    wrap.dataset.align = "left";
+  }
+  clearColumnPixelConstraints(table);
   const group = table.querySelector("colgroup");
   group == null ? void 0 : group.remove();
   for (const row of Array.from(table.rows)) {
@@ -752,12 +1099,153 @@ function resetTableSizing(table) {
   }
 }
 
+// src/image-layout.ts
+var IMAGE_SIZE_PRESETS = {
+  small: 35,
+  medium: 55,
+  large: 75,
+  full: 100
+};
+function nearestSizePreset(widthPct) {
+  const entries = Object.entries(IMAGE_SIZE_PRESETS);
+  let best = "medium";
+  let bestDist = Infinity;
+  for (const [id, pct] of entries) {
+    const d = Math.abs(pct - widthPct);
+    if (d < bestDist) {
+      bestDist = d;
+      best = id;
+    }
+  }
+  return best;
+}
+function markImageTouched(img) {
+  img.dataset.bpfImgTouched = "1";
+  img.classList.add("bpf-img-sized");
+}
+function applyImageLayout(img, layout) {
+  markImageTouched(img);
+  const pct = Math.min(100, Math.max(5, layout.widthPct));
+  img.style.width = `${pct}%`;
+  img.style.maxWidth = `${pct}%`;
+  img.style.height = "auto";
+  img.style.display = "block";
+  if (layout.align === "center") {
+    img.style.marginLeft = "auto";
+    img.style.marginRight = "auto";
+  } else if (layout.align === "right") {
+    img.style.marginLeft = "auto";
+    img.style.marginRight = "0";
+  } else {
+    img.style.marginLeft = "0";
+    img.style.marginRight = "auto";
+  }
+  img.dataset.bpfAlign = layout.align;
+}
+function applyNoteImageLayouts(root, layouts) {
+  var _a;
+  if (!((_a = layouts == null ? void 0 : layouts.images) == null ? void 0 : _a.length))
+    return;
+  const imgs = Array.from(root.querySelectorAll("img"));
+  for (const layout of layouts.images) {
+    const img = imgs[layout.index];
+    if (!img)
+      continue;
+    img.setAttribute("data-bpf-img", String(layout.index));
+    applyImageLayout(img, layout);
+  }
+}
+function imageLayoutsToCss(layouts) {
+  var _a;
+  if (!((_a = layouts == null ? void 0 : layouts.images) == null ? void 0 : _a.length))
+    return "";
+  const lines = [];
+  for (const layout of layouts.images) {
+    const t = `img[data-bpf-img="${layout.index}"]`;
+    const pct = Math.min(100, Math.max(5, layout.widthPct));
+    let ml = "0";
+    let mr = "auto";
+    if (layout.align === "center") {
+      ml = "auto";
+      mr = "auto";
+    } else if (layout.align === "right") {
+      ml = "auto";
+      mr = "0";
+    }
+    lines.push(
+      `${t}{width:${pct}% !important;max-width:${pct}% !important;height:auto !important;display:block !important;margin-left:${ml} !important;margin-right:${mr} !important;}`
+    );
+  }
+  return lines.join("\n");
+}
+function imageHasCustomSizing(img) {
+  if (img.dataset.bpfImgTouched === "1")
+    return true;
+  if (img.classList.contains("bpf-img-sized"))
+    return true;
+  if (img.style.width || img.dataset.bpfAlign)
+    return true;
+  return false;
+}
+function measureImageWidthPct(img, contentWidthPx3) {
+  var _a;
+  const parent = (_a = img.closest(".markdown-preview-view")) != null ? _a : img.parentElement;
+  const pw = contentWidthPx3 || (parent == null ? void 0 : parent.clientWidth) || (parent == null ? void 0 : parent.getBoundingClientRect().width) || 1;
+  const styleW = img.style.width;
+  if (styleW.endsWith("%")) {
+    const p = parseFloat(styleW);
+    if (Number.isFinite(p) && p > 0)
+      return Math.min(100, Math.max(5, p));
+  }
+  const tw = img.getBoundingClientRect().width;
+  return Math.min(100, Math.max(5, tw / pw * 100));
+}
+function captureNoteImageLayouts(root, contentWidthPx3) {
+  var _a, _b;
+  const imgs = Array.from(root.querySelectorAll("img"));
+  const parent = root.querySelector(".markdown-preview-view");
+  const pw = (_b = (_a = contentWidthPx3 != null ? contentWidthPx3 : parent == null ? void 0 : parent.clientWidth) != null ? _a : root.clientWidth) != null ? _b : 800;
+  const snapshots = [];
+  imgs.forEach((img, index) => {
+    if (!imageHasCustomSizing(img))
+      return;
+    const align = img.dataset.bpfAlign || inferAlign(img);
+    snapshots.push({
+      index,
+      widthPct: measureImageWidthPct(img, pw),
+      align
+    });
+  });
+  return { images: snapshots };
+}
+function inferAlign(img) {
+  const ml = img.style.marginLeft;
+  const mr = img.style.marginRight;
+  if (ml === "auto" && mr === "auto")
+    return "center";
+  if (ml === "auto")
+    return "right";
+  return "left";
+}
+function resetImageSizing(img) {
+  img.classList.remove("bpf-img-sized");
+  delete img.dataset.bpfImgTouched;
+  delete img.dataset.bpfAlign;
+  img.removeAttribute("data-bpf-img");
+  img.style.width = "";
+  img.style.maxWidth = "";
+  img.style.height = "";
+  img.style.display = "";
+  img.style.marginLeft = "";
+  img.style.marginRight = "";
+}
+
 // src/render.ts
 async function renderNoteHtml(app, file, profile, options = {}) {
-  var _a, _b;
+  var _a, _b, _c;
   const raw = await app.vault.cachedRead(file);
-  const markdown = applyPageBreakMarkers(raw);
-  const title = profile.page.useFilenameAsTitle ? file.basename : ((_b = (_a = app.metadataCache.getFileCache(file)) == null ? void 0 : _a.frontmatter) == null ? void 0 : _b.title) || file.basename;
+  const markdown = ((_a = profile.special) == null ? void 0 : _a.enablePageBreaks) === false ? raw : applyPageBreakMarkers(raw);
+  const title = profile.page.useFilenameAsTitle ? file.basename : ((_c = (_b = app.metadataCache.getFileCache(file)) == null ? void 0 : _b.frontmatter) == null ? void 0 : _c.title) || file.basename;
   const comp = new import_obsidian.Component();
   comp.load();
   const host = document.body.createDiv({
@@ -775,21 +1263,31 @@ async function renderNoteHtml(app, file, profile, options = {}) {
   try {
     await import_obsidian.MarkdownRenderer.render(app, markdown, viewEl, file.path, comp);
     await waitForEmbeds(viewEl);
+    applyWritingAssetPdfMode(app, viewEl);
     convertCanvases(viewEl);
     await rewriteInternalImages(app, file, viewEl);
     cleanupImageEmbeds(viewEl);
     stripUiChrome(viewEl);
-    applyNoteTableLayouts(viewEl, options.tableLayouts);
+    const pageW = contentWidthPx(profile);
+    const pageWmm = contentWidthMm(profile);
+    applyNoteTableLayouts(viewEl, options.tableLayouts, pageW);
+    applyNoteImageLayouts(viewEl, options.imageLayouts);
     const css = profileToCss(profile);
-    const layoutCss = tableLayoutsToCss(options.tableLayouts);
+    const layoutCss = [
+      tableLayoutsToCss(options.tableLayouts, pageWmm),
+      imageLayoutsToCss(options.imageLayouts)
+    ].filter(Boolean).join("\n");
     const bodyHtml = viewEl.innerHTML;
+    const shellCss = `html,body{width:${pageWmm}mm;max-width:${pageWmm}mm;margin:0;padding:0;box-sizing:border-box;}
+.markdown-preview-view{width:${pageWmm}mm;max-width:${pageWmm}mm;box-sizing:border-box;}`;
     const htmlDocument = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8" />
 <title>${escapeAttr(title)}</title>
 <style>${css}</style>
-${layoutCss ? `<style id="bpf-table-layouts">${layoutCss}</style>` : ""}
+<style id="bpf-page-shell">${shellCss}</style>
+${layoutCss ? `<style id="bpf-layouts">${layoutCss}</style>` : ""}
 </head>
 <body>
 <div class="markdown-preview-view markdown-rendered">
@@ -803,11 +1301,44 @@ ${bodyHtml}
     host.remove();
   }
 }
-async function waitForEmbeds(el2, ms = 800) {
-  const hasHeavy = el2.querySelector("img, .internal-embed, .markdown-embed, canvas") != null;
-  if (!hasHeavy)
+async function waitForEmbeds(el2) {
+  const deadline = Date.now() + 2500;
+  while (Date.now() < deadline) {
+    const empty = Array.from(el2.querySelectorAll(".writing-asset-embed")).some(
+      (block) => block.childElementCount === 0
+    );
+    if (!empty)
+      break;
+    await sleep(50);
+  }
+  const imgs = Array.from(el2.querySelectorAll("img"));
+  if (!imgs.length && !el2.querySelector(".internal-embed, .markdown-embed, canvas")) {
     return;
-  await sleep(ms);
+  }
+  await Promise.all(
+    imgs.map((img) => {
+      if (img.complete)
+        return Promise.resolve();
+      return new Promise((resolve) => {
+        const t = window.setTimeout(() => resolve(), 2e3);
+        img.onload = img.onerror = () => {
+          window.clearTimeout(t);
+          resolve();
+        };
+      });
+    })
+  );
+}
+function applyWritingAssetPdfMode(app, el2) {
+  var _a, _b, _c;
+  el2.querySelectorAll(".writing-asset-print-info").forEach((node) => node.remove());
+  const plugins = app.plugins;
+  const mode = (_c = (_b = (_a = plugins == null ? void 0 : plugins.getPlugin) == null ? void 0 : _a.call(plugins, "writing-asset")) == null ? void 0 : _b.settings) == null ? void 0 : _c.pdfExportMode;
+  if (mode !== "all") {
+    el2.querySelectorAll(".writing-asset-embed.is-nonimage").forEach(
+      (node) => node.remove()
+    );
+  }
 }
 function sleep(ms) {
   return new Promise((r) => window.setTimeout(r, ms));
@@ -827,10 +1358,23 @@ async function rewriteInternalImages(app, file, el2) {
   const imgs = Array.from(el2.querySelectorAll("img"));
   await Promise.all(
     imgs.map(async (img) => {
-      var _a;
+      var _a, _b;
       const src = img.getAttribute("src");
       if (!src || src.startsWith("data:"))
         return;
+      if (src.startsWith("blob:")) {
+        try {
+          const res = await fetch(src);
+          const data = await res.arrayBuffer();
+          const mime = ((_a = res.headers.get("content-type")) == null ? void 0 : _a.split(";")[0]) || "image/png";
+          img.setAttribute(
+            "src",
+            `data:${mime};base64,${arrayBufferToBase64(data)}`
+          );
+        } catch (e) {
+        }
+        return;
+      }
       let dest = null;
       try {
         dest = app.metadataCache.getFirstLinkpathDest(
@@ -866,7 +1410,7 @@ async function rewriteInternalImages(app, file, el2) {
         if (res.status >= 400)
           return;
         const data = res.arrayBuffer;
-        const contentType = (_a = res.headers["content-type"]) != null ? _a : res.headers["Content-Type"];
+        const contentType = (_b = res.headers["content-type"]) != null ? _b : res.headers["Content-Type"];
         const mime = (contentType == null ? void 0 : contentType.split(";")[0]) || mimeFromExtension(current.split(".").pop() || "");
         img.setAttribute(
           "src",
@@ -966,14 +1510,13 @@ function arrayBufferToBase64(buffer) {
   }
   return btoa(binary);
 }
-function contentWidthPx(profile) {
+function contentWidthMm(profile) {
   const page = profile.page;
   const widthMm = page.pageSize === "Custom" ? page.pageWidthMm : page.pageSize === "Letter" || page.pageSize === "Legal" ? 215.9 : 210;
-  const contentMm = Math.max(
-    40,
-    widthMm - page.marginLeftMm - page.marginRightMm
-  );
-  return Math.round(contentMm / 25.4 * 96);
+  return Math.max(40, widthMm - page.marginLeftMm - page.marginRightMm);
+}
+function contentWidthPx(profile) {
+  return Math.round(contentWidthMm(profile) / 25.4 * 96);
 }
 function escapeAttr(s) {
   return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
@@ -1009,9 +1552,16 @@ function getElectron() {
 }
 async function generatePdf(app, file, profile, options = {}) {
   const rendered = await renderNoteHtml(app, file, profile, {
-    tableLayouts: options.tableLayouts
+    tableLayouts: options.tableLayouts,
+    imageLayouts: options.imageLayouts
   });
-  const data = await printHtmlToPdf(rendered, profile, options.tableLayouts);
+  const hfCtx = headerFooterContext(app, file, rendered.title);
+  const data = await printHtmlToPdf(
+    rendered,
+    profile,
+    options.tableLayouts,
+    hfCtx
+  );
   return { data, title: rendered.title };
 }
 async function exportPdfToFile(app, file, profile, openAfter = true, options = {}) {
@@ -1043,9 +1593,10 @@ async function exportPdfToFile(app, file, profile, openAfter = true, options = {
     return null;
   }
 }
-async function printHtmlToPdf(rendered, profile, tableLayouts) {
+async function printHtmlToPdf(rendered, profile, tableLayouts, hfCtx) {
   var _a;
-  const webview = createHiddenWebview();
+  const pageW = contentWidthPx2(profile);
+  const webview = createHiddenWebview(pageW);
   const ready = waitForDomReady(webview);
   document.body.appendChild(webview);
   webview.src = "about:blank";
@@ -1075,10 +1626,13 @@ async function printHtmlToPdf(rendered, profile, tableLayouts) {
 			}))();
 		`);
     if ((_a = tableLayouts == null ? void 0 : tableLayouts.tables) == null ? void 0 : _a.length) {
-      await webview.executeJavaScript(buildApplyTableLayoutsScript(tableLayouts));
+      const result = await webview.executeJavaScript(
+        buildApplyTableLayoutsScript(tableLayouts, pageW)
+      );
+      console.debug("[Beautiful PDF] table layout apply", result);
     }
-    await sleep2(150);
-    const hf = headerFooterTemplates(profile);
+    await sleep2(200);
+    const hf = headerFooterTemplates(profile, hfCtx);
     const page = profile.page;
     let pageSize = page.pageSize;
     if (page.pageSize === "Custom") {
@@ -1109,38 +1663,52 @@ async function printHtmlToPdf(rendered, profile, tableLayouts) {
     webview.remove();
   }
 }
-function buildApplyTableLayoutsScript(layouts) {
+function buildApplyTableLayoutsScript(layouts, contentWidthPx3) {
   return `(() => {
 		const layouts = ${JSON.stringify(layouts)};
+		const parentW = ${Math.max(40, Math.round(contentWidthPx3))};
 		const root = document.querySelector(".markdown-preview-view") || document.body;
-		document.documentElement.style.setProperty("width", "100%", "important");
-		document.body.style.setProperty("width", "100%", "important");
+		document.documentElement.style.setProperty("width", parentW + "px", "important");
+		document.documentElement.style.setProperty("max-width", parentW + "px", "important");
+		document.body.style.setProperty("width", parentW + "px", "important");
+		document.body.style.setProperty("max-width", parentW + "px", "important");
+		document.body.style.setProperty("margin", "0", "important");
+		document.body.style.setProperty("padding", "0", "important");
 		if (root && root.style) {
-			root.style.setProperty("width", "100%", "important");
-			root.style.setProperty("max-width", "none", "important");
+			root.style.setProperty("width", parentW + "px", "important");
+			root.style.setProperty("max-width", parentW + "px", "important");
+			root.style.setProperty("box-sizing", "border-box", "important");
 		}
-		const parentW = Math.max(
-			1,
-			(root && root.clientWidth) || document.body.clientWidth || 794,
-		);
 		const tables = Array.from(document.querySelectorAll("table"));
 		let applied = 0;
 		for (const layout of layouts.tables || []) {
 			const table = tables[layout.index];
 			if (!table) continue;
 			table.style.setProperty("table-layout", "fixed", "important");
-			table.style.setProperty("max-width", "100%", "important");
 			table.style.setProperty("box-sizing", "border-box", "important");
 
-			let tablePx = 0;
+			let tablePx = parentW;
 			if (layout.widthPct != null && layout.widthPct > 0) {
 				tablePx = Math.max(40, (Number(layout.widthPct) / 100) * parentW);
-				table.style.setProperty("width", tablePx + "px", "important");
 			} else {
 				tablePx = table.getBoundingClientRect().width || parentW;
-				table.style.setProperty("width", tablePx + "px", "important");
 			}
+			tablePx = Math.round(tablePx);
+			table.style.setProperty("width", tablePx + "px", "important");
+			table.style.setProperty("min-width", tablePx + "px", "important");
+			table.style.setProperty("max-width", tablePx + "px", "important");
 
+			const align = layout.align === "center" || layout.align === "right" ? layout.align : "left";
+			if (align === "center") {
+				table.style.setProperty("margin-left", "auto", "important");
+				table.style.setProperty("margin-right", "auto", "important");
+			} else if (align === "right") {
+				table.style.setProperty("margin-left", "auto", "important");
+				table.style.setProperty("margin-right", "0", "important");
+			} else if (layout.align === "left") {
+				table.style.setProperty("margin-left", "0", "important");
+				table.style.setProperty("margin-right", "auto", "important");
+			}
 			const colsPct = layout.colWidthsPct || [];
 			const n = colsPct.length;
 			if (n > 0) {
@@ -1154,22 +1722,34 @@ function buildApplyTableLayoutsScript(layouts) {
 					group.appendChild(document.createElement("col"));
 				}
 				const sum = colsPct.reduce((a, b) => a + (Number(b) || 0), 0) || 1;
+				const colPx = [];
 				for (let i = 0; i < n; i++) {
 					const pct = ((Number(colsPct[i]) || 0) / sum) * 100;
-					const px = (pct / 100) * tablePx;
-					const col = group.children[i];
-					col.style.setProperty("width", px + "px", "important");
-					col.setAttribute("width", String(Math.round(px)));
+					colPx.push(Math.max(8, Math.round((pct / 100) * tablePx)));
 				}
-				const row0 = table.rows[0];
-				if (row0) {
-					for (let i = 0; i < n; i++) {
-						const cell = row0.cells[i];
-						if (!cell) continue;
-						const pct = ((Number(colsPct[i]) || 0) / sum) * 100;
-						const px = (pct / 100) * tablePx;
-						cell.style.setProperty("width", px + "px", "important");
-						cell.setAttribute("width", String(Math.round(px)));
+				for (let i = 0; i < n; i++) {
+					const col = group.children[i];
+					const w = colPx[i] + "px";
+					col.style.setProperty("width", w, "important");
+					col.style.setProperty("min-width", w, "important");
+					col.style.setProperty("max-width", w, "important");
+					col.setAttribute("width", String(colPx[i]));
+				}
+				for (const row of Array.from(table.rows)) {
+					let colAt = 0;
+					for (const cell of Array.from(row.cells)) {
+						const span = cell.colSpan || 1;
+						let spanPx = 0;
+						for (let k = 0; k < span && colAt + k < n; k++) spanPx += colPx[colAt + k];
+						if (spanPx > 0) {
+							const w = spanPx + "px";
+							cell.style.setProperty("width", w, "important");
+							cell.style.setProperty("min-width", w, "important");
+							cell.style.setProperty("max-width", w, "important");
+							cell.style.setProperty("box-sizing", "border-box", "important");
+							cell.setAttribute("width", String(spanPx));
+						}
+						colAt += span;
 					}
 				}
 			}
@@ -1193,13 +1773,22 @@ function buildApplyTableLayoutsScript(layouts) {
 		return { tables: tables.length, applied: applied, parentW: parentW };
 	})()`;
 }
-function createHiddenWebview() {
-  return createEl("webview", {
+function contentWidthPx2(profile) {
+  const page = profile.page;
+  const widthMm = page.pageSize === "Custom" ? page.pageWidthMm : page.pageSize === "Letter" || page.pageSize === "Legal" ? 215.9 : 210;
+  const contentMm = Math.max(40, widthMm - page.marginLeftMm - page.marginRightMm);
+  return Math.round(contentMm / 25.4 * 96);
+}
+function createHiddenWebview(contentWidthPx3) {
+  const w = Math.max(400, Math.round(contentWidthPx3));
+  const el2 = createEl("webview", {
     cls: "beautiful-pdf-print-webview",
     attr: {
-      webpreferences: "nodeIntegration=yes"
+      webpreferences: "nodeIntegration=yes",
+      style: `width:${w}px;height:1123px;`
     }
   });
+  return el2;
 }
 function waitForDomReady(webview) {
   return new Promise((resolve, reject) => {
@@ -1219,13 +1808,21 @@ function sleep2(ms) {
 }
 
 // src/preview.ts
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 
 // src/types.ts
 var FRAME_PRESET_OPTIONS = [
   { id: "accent-bar", label: "Accent bar (left edge)" },
   { id: "outline-card", label: "Outline card" },
   { id: "soft-fill", label: "Soft fill (no border)" }
+];
+var HR_PRESET_OPTIONS = [
+  { id: "solid", label: "Thin solid" },
+  { id: "thick", label: "Thick solid" },
+  { id: "double", label: "Double line" },
+  { id: "dashed", label: "Dashed" },
+  { id: "fade", label: "Soft fade" },
+  { id: "short", label: "Short center bar" }
 ];
 var ELEMENTS_WITH_FRAME = [
   "blockquote",
@@ -1238,6 +1835,10 @@ function createDefaultSpecialOptions(overrides = {}) {
     orderedListHeadingLevel1: 2,
     orderedListHeadingLevel2: 3,
     orderedListHeadingLevel3: 4,
+    enablePageBreaks: true,
+    enableTableAdjust: true,
+    enableImageAdjust: true,
+    enablePlaceholders: true,
     ...overrides
   };
 }
@@ -1411,7 +2012,8 @@ function baseElements() {
       fontSize: 11,
       marginTop: 16,
       marginBottom: 16,
-      color: "#cccccc"
+      color: "#cccccc",
+      hrPreset: "solid"
     }),
     table: el({
       fontSize: 10,
@@ -1478,13 +2080,19 @@ function basePage(overrides = {}) {
     marginLeftMm: 18,
     marginRightMm: 18,
     lineHeight: 170,
-    pageNumber: "bottom-center",
-    pageNumberFormat: "{page}",
     useFilenameAsTitle: true,
-    headerText: "",
-    headerAlign: "left",
-    footerText: "",
-    footerAlign: "center",
+    headerLeft: "",
+    headerCenter: "",
+    headerRight: "",
+    footerLeft: "",
+    footerCenter: "{{page}}",
+    footerRight: "",
+    headerLeftStyle: "",
+    headerCenterStyle: "",
+    headerRightStyle: "",
+    footerLeftStyle: "",
+    footerCenterStyle: "",
+    footerRightStyle: "",
     printBackground: true,
     ...overrides
   };
@@ -1533,11 +2141,8 @@ function createReportProfile() {
       marginLeftMm: 24,
       marginRightMm: 24,
       lineHeight: 165,
-      pageNumber: "bottom-center",
-      pageNumberFormat: "- {page} -",
       useFilenameAsTitle: true,
-      headerText: "",
-      footerText: ""
+      footerCenter: "- {{page}} -"
     }),
     elements,
     special: createDefaultSpecialOptions()
@@ -1575,6 +2180,7 @@ function createLifeProfile() {
   elements.callout.framePreset = "soft-fill";
   elements.link.color = "#c2410c";
   elements.hr.color = "#e7e5e4";
+  elements.hr.hrPreset = "fade";
   elements.embed.backgroundColor = "#fafaf9";
   elements.embed.framePreset = "soft-fill";
   return {
@@ -1586,11 +2192,9 @@ function createLifeProfile() {
       marginLeftMm: 14,
       marginRightMm: 14,
       lineHeight: 200,
-      pageNumber: "bottom-right",
-      pageNumberFormat: "{page}",
       useFilenameAsTitle: true,
-      headerText: "",
-      footerAlign: "right"
+      footerCenter: "",
+      footerRight: "{{page}}"
     }),
     elements,
     special: createDefaultSpecialOptions()
@@ -1634,6 +2238,7 @@ function createPlanProfile() {
   elements.callout.framePreset = "outline-card";
   elements.link.color = "#0284c7";
   elements.hr.color = "#bae6fd";
+  elements.hr.hrPreset = "short";
   elements.embed.backgroundColor = "#f8fafc";
   elements.embed.framePreset = "outline-card";
   elements.footnote.fontSize = 8;
@@ -1646,12 +2251,10 @@ function createPlanProfile() {
       marginLeftMm: 16,
       marginRightMm: 16,
       lineHeight: 150,
-      pageNumber: "top-center",
-      pageNumberFormat: "{page} / {pages}",
       useFilenameAsTitle: true,
-      headerText: "Proposal",
-      headerAlign: "right",
-      footerText: ""
+      headerCenter: "{{page}} / {{pages}}",
+      headerRight: "Proposal",
+      footerCenter: ""
     }),
     elements,
     special: createDefaultSpecialOptions({ styleOrderedListsAsHeadings: true })
@@ -1666,7 +2269,8 @@ function createDefaultSettings() {
     settingsVersion: 3,
     activeProfileId: profiles[0].id,
     profiles,
-    tableLayouts: {}
+    tableLayouts: {},
+    imageLayouts: {}
   };
 }
 function getActiveProfile(settings) {
@@ -1693,9 +2297,363 @@ function createBlankProfile(name) {
   };
 }
 
-// src/table-editor.ts
+// src/image-editor.ts
 var import_obsidian3 = require("obsidian");
-var _TableAdjustModal = class extends import_obsidian3.Modal {
+var ImageAdjustModal = class extends import_obsidian3.Modal {
+  constructor(app, plugin, file, onApplied) {
+    super(app);
+    this.frameEl = null;
+    this.statusEl = null;
+    this.widthPxInput = null;
+    this.activeIndex = 0;
+    this.detachFns = [];
+    this.plugin = plugin;
+    this.file = file;
+    this.onApplied = onApplied;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    this.modalEl.addClass("beautiful-pdf-image-adjust-modal");
+    contentEl.empty();
+    contentEl.createEl("h2", { text: "Adjust images" });
+    const tip = contentEl.createDiv({ cls: "beautiful-pdf-tip" });
+    tip.setText(
+      "Paper size matches the active profile. Click an image, then choose size and alignment (block only \u2014 no text wrap). Apply & preview PDF."
+    );
+    const toolbar = contentEl.createDiv({ cls: "beautiful-pdf-toolbar" });
+    const mkOn = (parent, label, cls, fn) => {
+      const b = parent.createEl("button", {
+        text: label,
+        cls,
+        attr: { type: "button" }
+      });
+      b.onclick = () => fn();
+      return b;
+    };
+    const sizeBar = toolbar.createDiv({ cls: "beautiful-pdf-img-tool-group" });
+    sizeBar.createSpan({ text: "Size", cls: "beautiful-pdf-img-tool-label" });
+    for (const [id, label] of [
+      ["small", "S"],
+      ["medium", "M"],
+      ["large", "L"],
+      ["full", "Full"]
+    ]) {
+      mkOn(sizeBar, label, "beautiful-pdf-img-size-btn", () => this.setSize(id));
+    }
+    this.widthPxInput = sizeBar.createEl("input", {
+      cls: "beautiful-pdf-img-width-px",
+      attr: {
+        type: "number",
+        min: "40",
+        step: "1",
+        placeholder: "px",
+        title: "Width in pixels (relative to content column)",
+        "aria-label": "Image width in pixels"
+      }
+    });
+    sizeBar.createSpan({ text: "px", cls: "beautiful-pdf-img-tool-label" });
+    this.widthPxInput.addEventListener("change", () => this.applyWidthPxInput());
+    this.widthPxInput.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        this.applyWidthPxInput();
+      }
+    });
+    const alignBar = toolbar.createDiv({ cls: "beautiful-pdf-img-tool-group" });
+    alignBar.createSpan({ text: "Align", cls: "beautiful-pdf-img-tool-label" });
+    for (const [id, label] of [
+      ["left", "Left"],
+      ["center", "Center"],
+      ["right", "Right"]
+    ]) {
+      mkOn(alignBar, label, "beautiful-pdf-img-align-btn", () => this.setAlign(id));
+    }
+    mkOn(toolbar, "Reset image", "", () => this.resetActive());
+    mkOn(toolbar, "Clear all", "", () => this.clearAll());
+    mkOn(toolbar, "Apply & preview PDF", "mod-cta", () => void this.applyAndClose());
+    this.statusEl = toolbar.createDiv({
+      cls: "beautiful-pdf-status",
+      text: "Loading\u2026"
+    });
+    const wrap = contentEl.createDiv({ cls: "beautiful-pdf-image-adjust-frame" });
+    this.frameEl = wrap.createEl("iframe", {
+      attr: { title: "Image layout editor" }
+    });
+    void this.loadHtml();
+  }
+  onClose() {
+    this.teardown();
+    this.contentEl.empty();
+  }
+  setStatus(text) {
+    var _a;
+    (_a = this.statusEl) == null ? void 0 : _a.setText(text);
+  }
+  doc() {
+    var _a, _b;
+    return (_b = (_a = this.frameEl) == null ? void 0 : _a.contentDocument) != null ? _b : null;
+  }
+  viewRoot() {
+    var _a, _b;
+    return (_b = (_a = this.doc()) == null ? void 0 : _a.querySelector(
+      ".bpf-paper .markdown-preview-view"
+    )) != null ? _b : null;
+  }
+  imgs() {
+    const root = this.viewRoot();
+    if (!root)
+      return [];
+    return Array.from(root.querySelectorAll("img"));
+  }
+  async loadHtml() {
+    var _a, _b, _c, _d, _e;
+    try {
+      const profile = getActiveProfile(this.plugin.settings);
+      const saved = (_b = (_a = this.plugin.settings.imageLayouts) == null ? void 0 : _a[this.file.path]) != null ? _b : null;
+      const rendered = await renderNoteHtml(this.app, this.file, profile, {
+        tableLayouts: null,
+        imageLayouts: null
+      });
+      const page = profile.page;
+      const { pageWidthMm, pageHeightMm, contentWidthMm: contentWidthMm2 } = pageMetrics(page);
+      const label = `${page.pageSize === "Custom" ? "Custom" : page.pageSize} ${pageWidthMm}\xD7${pageHeightMm} mm \xB7 content ${contentWidthMm2.toFixed(1)} mm`;
+      const editorCss = `
+${rendered.css}
+html, body {
+  margin: 0;
+  padding: 16px;
+  background: #e5e7eb;
+}
+.bpf-paper-meta {
+  max-width: ${pageWidthMm}mm;
+  margin: 0 auto 10px;
+  font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #4b5563;
+}
+.bpf-paper {
+  width: ${pageWidthMm}mm;
+  min-height: ${pageHeightMm}mm;
+  margin: 0 auto 24px;
+  background: #fff;
+  box-sizing: border-box;
+  padding: ${page.marginTopMm}mm ${page.marginRightMm}mm ${page.marginBottomMm}mm ${page.marginLeftMm}mm;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.14);
+  overflow: hidden;
+}
+.bpf-paper .markdown-preview-view {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  box-sizing: border-box !important;
+}
+img {
+  cursor: pointer;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color 0.12s ease;
+}
+img.bpf-img-active {
+  outline-color: #2563eb;
+}
+img.bpf-img-sized {
+  outline-color: rgba(37, 99, 235, 0.35);
+}
+img.bpf-img-sized.bpf-img-active {
+  outline-color: #2563eb;
+}
+`;
+      const bodyInner = (_d = (_c = rendered.htmlDocument.match(/<body[^>]*>([\s\S]*)<\/body>/i)) == null ? void 0 : _c[1]) != null ? _d : `<div class="markdown-preview-view markdown-rendered">${rendered.bodyHtml}</div>`;
+      const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8" /><style>${editorCss}</style></head>
+<body>
+<div class="bpf-paper-meta">${label}</div>
+<div class="bpf-paper">${bodyInner}</div>
+</body></html>`;
+      if (!this.frameEl)
+        return;
+      this.frameEl.srcdoc = html;
+      await new Promise((resolve) => {
+        if (!this.frameEl) {
+          resolve();
+          return;
+        }
+        this.frameEl.onload = () => resolve();
+      });
+      const view = this.viewRoot();
+      if (view && ((_e = saved == null ? void 0 : saved.images) == null ? void 0 : _e.length)) {
+        applyNoteImageLayouts(view, saved);
+      }
+      this.wireImages();
+      const n = this.imgs().length;
+      this.setStatus(
+        n === 0 ? "No images in this note" : `${n} image${n === 1 ? "" : "s"} \xB7 click to select \xB7 size & align`
+      );
+      if (n > 0)
+        this.selectIndex(0);
+    } catch (err) {
+      console.error(err);
+      this.setStatus("Failed to load");
+      new import_obsidian3.Notice(`Image adjust failed: ${String(err)}`);
+    }
+  }
+  teardown() {
+    for (const fn of this.detachFns)
+      fn();
+    this.detachFns = [];
+  }
+  wireImages() {
+    this.teardown();
+    const imgs = this.imgs();
+    imgs.forEach((img, i) => {
+      const onClick = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.selectIndex(i);
+      };
+      img.addEventListener("click", onClick);
+      this.detachFns.push(() => img.removeEventListener("click", onClick));
+    });
+  }
+  contentWidthPx() {
+    const view = this.viewRoot();
+    return Math.max(1, (view == null ? void 0 : view.clientWidth) || (view == null ? void 0 : view.getBoundingClientRect().width) || 1);
+  }
+  selectIndex(i) {
+    const imgs = this.imgs();
+    if (!imgs[i])
+      return;
+    this.activeIndex = i;
+    imgs.forEach((img2, j) => {
+      img2.classList.toggle("bpf-img-active", j === i);
+    });
+    const img = imgs[i];
+    const pct = parseFloat(img.style.width) || IMAGE_SIZE_PRESETS.medium;
+    const align = img.dataset.bpfAlign || "center";
+    const preset = nearestSizePreset(pct);
+    const px = Math.round(pct / 100 * this.contentWidthPx());
+    if (this.widthPxInput)
+      this.widthPxInput.value = String(px);
+    this.setStatus(
+      `Image ${i + 1}/${imgs.length} \xB7 ${Math.round(pct)}% (${px}px) \xB7 ${align}` + (Math.abs(IMAGE_SIZE_PRESETS[preset] - pct) < 0.6 ? ` \xB7 ${preset}` : "")
+    );
+  }
+  activeImg() {
+    var _a;
+    return (_a = this.imgs()[this.activeIndex]) != null ? _a : null;
+  }
+  setSize(preset) {
+    const img = this.activeImg();
+    if (!img)
+      return;
+    const align = img.dataset.bpfAlign || "center";
+    applyImageLayout(img, {
+      widthPct: IMAGE_SIZE_PRESETS[preset],
+      align
+    });
+    this.selectIndex(this.activeIndex);
+  }
+  applyWidthPxInput() {
+    var _a, _b, _c;
+    const raw = (_c = (_b = (_a = this.widthPxInput) == null ? void 0 : _a.value) == null ? void 0 : _b.trim()) != null ? _c : "";
+    const px = parseFloat(raw);
+    if (!Number.isFinite(px) || px <= 0) {
+      new import_obsidian3.Notice("Enter a positive width in pixels.");
+      this.selectIndex(this.activeIndex);
+      return;
+    }
+    this.setWidthPx(px);
+  }
+  setWidthPx(widthPx) {
+    const img = this.activeImg();
+    if (!img)
+      return;
+    const contentW = this.contentWidthPx();
+    const pct = Math.min(100, Math.max(5, widthPx / contentW * 100));
+    const align = img.dataset.bpfAlign || "center";
+    applyImageLayout(img, { widthPct: pct, align });
+    this.selectIndex(this.activeIndex);
+  }
+  setAlign(align) {
+    const img = this.activeImg();
+    if (!img)
+      return;
+    const pct = parseFloat(img.style.width) || IMAGE_SIZE_PRESETS[nearestSizePreset(55)];
+    applyImageLayout(img, { widthPct: pct, align });
+    this.selectIndex(this.activeIndex);
+  }
+  resetActive() {
+    const img = this.activeImg();
+    if (!img)
+      return;
+    resetImageSizing(img);
+    this.selectIndex(this.activeIndex);
+    this.setStatus(`Image ${this.activeIndex + 1} \xB7 reset`);
+  }
+  clearAll() {
+    for (const img of this.imgs())
+      resetImageSizing(img);
+    if (this.plugin.settings.imageLayouts) {
+      delete this.plugin.settings.imageLayouts[this.file.path];
+    }
+    void this.plugin.saveSettings();
+    this.setStatus("All image sizing cleared");
+  }
+  async applyAndClose() {
+    var _a, _b;
+    const root = this.viewRoot();
+    if (!root) {
+      new import_obsidian3.Notice("Beautiful PDF: image editor DOM not ready");
+      return;
+    }
+    const layouts = captureNoteImageLayouts(root);
+    if (!this.plugin.settings.imageLayouts) {
+      this.plugin.settings.imageLayouts = {};
+    }
+    if (layouts.images.length === 0) {
+      delete this.plugin.settings.imageLayouts[this.file.path];
+    } else {
+      this.plugin.settings.imageLayouts[this.file.path] = JSON.parse(
+        JSON.stringify(layouts)
+      );
+    }
+    await this.plugin.saveSettings();
+    const saved = (_b = (_a = this.plugin.settings.imageLayouts) == null ? void 0 : _a[this.file.path]) != null ? _b : { images: [] };
+    const callback = this.onApplied;
+    this.close();
+    callback(saved);
+    new import_obsidian3.Notice(
+      saved.images.length ? `Saved layout for ${saved.images.length} image(s)` : "No custom image sizing to save"
+    );
+  }
+};
+function pageMetrics(page) {
+  const pageWidthMm = page.pageSize === "Custom" ? page.pageWidthMm : page.pageSize === "Letter" || page.pageSize === "Legal" ? 215.9 : 210;
+  const pageHeightMm = page.pageSize === "Custom" ? page.pageHeightMm : page.pageSize === "Letter" ? 279.4 : page.pageSize === "Legal" ? 355.6 : 297;
+  const contentWidthMm2 = Math.max(
+    40,
+    pageWidthMm - page.marginLeftMm - page.marginRightMm
+  );
+  return { pageWidthMm, pageHeightMm, contentWidthMm: contentWidthMm2 };
+}
+function imageLayoutsForFile(plugin, file) {
+  var _a, _b;
+  return (_b = (_a = plugin.settings.imageLayouts) == null ? void 0 : _a[file.path]) != null ? _b : null;
+}
+function imageAdjustEnabled(plugin) {
+  return getActiveProfile(plugin.settings).special.enableImageAdjust !== false;
+}
+function imageLayoutsForExport(plugin, file) {
+  if (!imageAdjustEnabled(plugin))
+    return null;
+  return imageLayoutsForFile(plugin, file);
+}
+
+// src/table-editor.ts
+var import_obsidian4 = require("obsidian");
+var _TableAdjustModal = class extends import_obsidian4.Modal {
   constructor(app, plugin, file, onApplied) {
     super(app);
     this.frameEl = null;
@@ -1716,7 +2674,7 @@ var _TableAdjustModal = class extends import_obsidian3.Modal {
     contentEl.createEl("h2", { text: "Adjust tables" });
     const tip = contentEl.createDiv({ cls: "beautiful-pdf-tip" });
     tip.setText(
-      "Drag across cells to select. Click empty space to clear. Inner column edges redistribute columns; right edge = table width; bottom edge = table height. Then Apply & preview PDF."
+      "Paper size and margins match the active profile (same as PDF). Drag cells to select; column/row borders resize neighbors; right/bottom edges resize the whole table. Then Apply & preview PDF."
     );
     const toolbar = contentEl.createDiv({ cls: "beautiful-pdf-toolbar" });
     const mk = (label, cls, fn) => {
@@ -1726,6 +2684,9 @@ var _TableAdjustModal = class extends import_obsidian3.Modal {
     };
     mk("Equalize column widths", "", () => this.equalizeSelectedColumns());
     mk("Equalize row heights", "", () => this.equalizeSelectedRows());
+    mk("Align left", "", () => this.setActiveTableAlign("left"));
+    mk("Align center", "", () => this.setActiveTableAlign("center"));
+    mk("Align right", "", () => this.setActiveTableAlign("right"));
     mk("Reset active table", "", () => this.resetActiveTable());
     mk("Clear all sizing", "", () => this.clearAllSizing());
     mk("Apply & preview PDF", "mod-cta", () => void this.applyAndClose());
@@ -1756,40 +2717,76 @@ var _TableAdjustModal = class extends import_obsidian3.Modal {
     return (_b = (_a = this.doc()) == null ? void 0 : _a.body) != null ? _b : null;
   }
   async loadHtml() {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     try {
       const profile = getActiveProfile(this.plugin.settings);
       const saved = (_b = (_a = this.plugin.settings.tableLayouts) == null ? void 0 : _a[this.file.path]) != null ? _b : null;
       const rendered = await renderNoteHtml(this.app, this.file, profile, {
-        tableLayouts: saved
+        tableLayouts: null
       });
       const page = profile.page;
-      const widthMm = page.pageSize === "Custom" ? page.pageWidthMm : page.pageSize === "Letter" || page.pageSize === "Legal" ? 215.9 : 210;
-      const contentWidthMm = Math.max(
-        40,
-        widthMm - page.marginLeftMm - page.marginRightMm
-      );
+      const { pageWidthMm, pageHeightMm, contentWidthMm: contentWidthMm2 } = pageMetrics2(page);
+      const label = `${page.pageSize === "Custom" ? "Custom" : page.pageSize} ${pageWidthMm}\xD7${pageHeightMm} mm \xB7 content ${contentWidthMm2.toFixed(1)} mm \xB7 margins ${page.marginTopMm}/${page.marginRightMm}/${page.marginBottomMm}/${page.marginLeftMm}`;
       const editorCss = `
 ${rendered.css}
 html, body {
   margin: 0;
   padding: 16px;
-  background: #f3f4f6;
+  background: #e5e7eb;
 }
-.markdown-preview-view {
-  max-width: ${contentWidthMm}mm;
-  margin: 0 auto;
+.bpf-paper-meta {
+  max-width: ${pageWidthMm}mm;
+  margin: 0 auto 10px;
+  font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #4b5563;
+}
+.bpf-paper {
+  width: ${pageWidthMm}mm;
+  min-height: ${pageHeightMm}mm;
+  margin: 0 auto 24px;
   background: #fff;
-  padding: 12mm;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+  box-sizing: border-box;
+  padding: ${page.marginTopMm}mm ${page.marginRightMm}mm ${page.marginBottomMm}mm ${page.marginLeftMm}mm;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.14);
+  /* Must stay visible: edge handles sit on the table border; clipping
+     made the right/bottom hit targets untouchable at full content width. */
+  overflow: visible;
+}
+/* Content column = exact PDF printable width (page \u2212 margins). */
+.bpf-paper .markdown-preview-view {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
 }
 .bpf-table-wrap {
   position: relative;
-  display: inline-block;
+  display: block;
+  width: fit-content;
   max-width: 100%;
-  margin: 0 10px 10px 0;
+  margin: 0 0 10px;
   vertical-align: top;
   overflow: visible;
+  /* Keep a little room so handles are not covered by following blocks. */
+  padding-right: 2px;
+  padding-bottom: 2px;
+  box-sizing: border-box;
+}
+.bpf-table-wrap[data-align="left"] {
+  margin-left: 0;
+  margin-right: auto;
+}
+.bpf-table-wrap[data-align="center"] {
+  margin-left: auto;
+  margin-right: auto;
+}
+.bpf-table-wrap[data-align="right"] {
+  margin-left: auto;
+  margin-right: 0;
 }
 table {
   position: relative;
@@ -1801,8 +2798,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
   outline-offset: -2px;
   background: rgba(37, 99, 235, 0.08) !important;
 }
-/* All handles: position only via inline left/top/width/height (no right/bottom). */
 .bpf-col-handle,
+.bpf-row-handle,
 .bpf-edge-handle-right,
 .bpf-edge-handle-bottom {
   position: absolute;
@@ -1811,22 +2808,72 @@ td.bpf-cell-selected, th.bpf-cell-selected {
   background: transparent;
   pointer-events: auto;
 }
-.bpf-col-handle {
-  cursor: col-resize;
+.bpf-col-handle,
+.bpf-edge-handle-right { cursor: col-resize; }
+.bpf-row-handle,
+.bpf-edge-handle-bottom { cursor: row-resize; }
+/* Thin guide line inside a wider hit target (not a fat blue bar). */
+.bpf-col-handle::after,
+.bpf-edge-handle-right::after,
+.bpf-row-handle::after,
+.bpf-edge-handle-bottom::after {
+  content: "";
+  position: absolute;
+  background: transparent;
+  border-radius: 0;
+  pointer-events: none;
+  transition: background 0.1s ease, box-shadow 0.1s ease, width 0.1s ease, height 0.1s ease;
 }
-.bpf-edge-handle-right {
-  cursor: ew-resize;
+/* Inner borders: line centered on the grid. */
+.bpf-col-handle::after {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
 }
-.bpf-edge-handle-bottom {
-  cursor: ns-resize;
+.bpf-row-handle::after {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
 }
-.bpf-col-handle:hover,
-.bpf-edge-handle-right:hover,
-.bpf-edge-handle-bottom:hover,
-.bpf-col-handle.is-dragging,
-.bpf-edge-handle-right.is-dragging,
-.bpf-edge-handle-bottom.is-dragging {
-  background: rgba(37, 99, 235, 0.45);
+/* Outer edges: hit target is inset, but the guide sits on the real border. */
+.bpf-edge-handle-right::after {
+  top: 0;
+  bottom: 0;
+  left: auto;
+  right: 0;
+  width: 1px;
+  transform: none;
+}
+.bpf-edge-handle-bottom::after {
+  left: 0;
+  right: 0;
+  top: auto;
+  bottom: 0;
+  height: 1px;
+  transform: none;
+}
+.bpf-col-handle:hover::after,
+.bpf-edge-handle-right:hover::after,
+.bpf-row-handle:hover::after,
+.bpf-edge-handle-bottom:hover::after {
+  background: rgba(37, 99, 235, 0.55);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+.bpf-col-handle.is-dragging::after,
+.bpf-edge-handle-right.is-dragging::after {
+  width: 2px;
+  background: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.18);
+}
+.bpf-row-handle.is-dragging::after,
+.bpf-edge-handle-bottom.is-dragging::after {
+  height: 2px;
+  background: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.18);
 }
 .bpf-table-hint {
   font-size: 11px;
@@ -1834,9 +2881,12 @@ td.bpf-cell-selected, th.bpf-cell-selected {
   margin: 4px 0 6px;
 }
 `;
+      const bodyInner = (_d = (_c = rendered.htmlDocument.match(/<body[^>]*>([\s\S]*)<\/body>/i)) == null ? void 0 : _c[1]) != null ? _d : `<div class="markdown-preview-view markdown-rendered">${rendered.bodyHtml}</div>`;
       const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8" /><style>${editorCss}</style></head>
-<body>${(_d = (_c = rendered.htmlDocument.match(/<body[^>]*>([\s\S]*)<\/body>/i)) == null ? void 0 : _c[1]) != null ? _d : rendered.bodyHtml}
+<body>
+<div class="bpf-paper-meta">${label}</div>
+<div class="bpf-paper">${bodyInner}</div>
 </body></html>`;
       if (!this.frameEl)
         return;
@@ -1848,15 +2898,22 @@ td.bpf-cell-selected, th.bpf-cell-selected {
         }
         this.frameEl.onload = () => resolve();
       });
+      const view = (_e = this.doc()) == null ? void 0 : _e.querySelector(
+        ".bpf-paper .markdown-preview-view"
+      );
+      if (view && ((_f = saved == null ? void 0 : saved.tables) == null ? void 0 : _f.length)) {
+        applyNoteTableLayouts(view, saved, view.clientWidth);
+      }
       this.wireTables();
-      const n = (_f = (_e = this.doc()) == null ? void 0 : _e.querySelectorAll("table").length) != null ? _f : 0;
+      const n = (_h = (_g = this.doc()) == null ? void 0 : _g.querySelectorAll("table").length) != null ? _h : 0;
+      const measured = (view == null ? void 0 : view.clientWidth) ? ` \xB7 editor ${Math.round(view.clientWidth)}px` : "";
       this.setStatus(
-        n === 0 ? "No tables in this note" : `${n} table${n === 1 ? "" : "s"} \xB7 click cells \xB7 drag column edges`
+        n === 0 ? "No tables in this note" : `${n} table${n === 1 ? "" : "s"} \xB7 content ${contentWidthMm2.toFixed(0)}mm${measured}`
       );
     } catch (err) {
       console.error(err);
       this.setStatus("Failed to load");
-      new import_obsidian3.Notice(`Table adjust failed: ${String(err)}`);
+      new import_obsidian4.Notice(`Table adjust failed: ${String(err)}`);
     }
   }
   teardownHandlers() {
@@ -1913,7 +2970,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       const t = ev.target;
       if (!t)
         return;
-      if ((_a = t.closest) == null ? void 0 : _a.call(t, "td, th, .bpf-col-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom, button")) {
+      if ((_a = t.closest) == null ? void 0 : _a.call(t, "td, th, .bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom, button")) {
         return;
       }
       this.clearSelection();
@@ -1941,7 +2998,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
           return;
         if ((_d = (_c = ev.target).closest) == null ? void 0 : _d.call(
           _c,
-          ".bpf-col-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom"
+          ".bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom"
         )) {
           return;
         }
@@ -2007,28 +3064,52 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     }
   }
   ensureWrap(table) {
+    var _a, _b;
     const parent = table.parentElement;
-    if (parent == null ? void 0 : parent.classList.contains("bpf-table-wrap"))
+    if (parent == null ? void 0 : parent.classList.contains("bpf-table-wrap")) {
+      const align2 = (_a = table.dataset.bpfAlign) != null ? _a : "left";
+      parent.dataset.align = align2;
       return parent;
+    }
     const doc = this.doc();
     if (!doc || !parent)
       return table;
     const wrap = doc.createElement("div");
     wrap.className = "bpf-table-wrap";
+    const align = (_b = table.dataset.bpfAlign) != null ? _b : "left";
+    wrap.dataset.align = align;
     parent.insertBefore(wrap, table);
     wrap.appendChild(table);
     return wrap;
+  }
+  setActiveTableAlign(align) {
+    const root = this.root();
+    if (!root)
+      return;
+    const tables = Array.from(root.querySelectorAll("table"));
+    const table = tables[this.activeTableIndex];
+    if (!table) {
+      new import_obsidian4.Notice("Select a table first (click any cell).");
+      return;
+    }
+    applyTableBlockAlign(table, align);
+    this.ensureWrap(table);
+    this.syncHandlePositions(table);
+    this.setStatus(`Table ${this.activeTableIndex + 1} \xB7 align ${align}`);
   }
   clearHandles(table) {
     var _a;
     const wrap = ((_a = table.parentElement) == null ? void 0 : _a.classList.contains("bpf-table-wrap")) ? table.parentElement : table;
     wrap.querySelectorAll(
-      ".bpf-col-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom"
+      ".bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom"
     ).forEach((h) => h.remove());
   }
   /**
    * Place a handle by table geometry relative to wrap.
    * Uses left/top only — never CSS right/bottom (those missed the border).
+   *
+   * Outer edges are inset (not centered) so the full hit target stays over
+   * the table. Inner col/row borders stay centered on the grid line.
    */
   syncHandlePositions(table) {
     var _a;
@@ -2058,11 +3139,26 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       el2.style.right = "auto";
       el2.style.bottom = "auto";
     });
+    wrap.querySelectorAll(".bpf-row-handle").forEach((node) => {
+      const el2 = node;
+      const rowIndex = Number(el2.dataset.row);
+      const row = table.rows[rowIndex];
+      if (!row)
+        return;
+      const rr = row.getBoundingClientRect();
+      const borderY = rr.bottom - wr.top;
+      el2.style.left = `${left}px`;
+      el2.style.top = `${borderY - edge / 2}px`;
+      el2.style.width = `${w}px`;
+      el2.style.height = `${edge}px`;
+      el2.style.right = "auto";
+      el2.style.bottom = "auto";
+    });
     const right = wrap.querySelector(
       ".bpf-edge-handle-right"
     );
     if (right) {
-      right.style.left = `${left + w - edge / 2}px`;
+      right.style.left = `${left + Math.max(0, w - edge)}px`;
       right.style.top = `${top}px`;
       right.style.width = `${edge}px`;
       right.style.height = `${h}px`;
@@ -2074,7 +3170,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     );
     if (bottom) {
       bottom.style.left = `${left}px`;
-      bottom.style.top = `${top + h - edge / 2}px`;
+      bottom.style.top = `${top + Math.max(0, h - edge)}px`;
       bottom.style.width = `${w}px`;
       bottom.style.height = `${edge}px`;
       bottom.style.right = "auto";
@@ -2141,6 +3237,72 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       handle.addEventListener("mousedown", onDown);
       this.detachFns.push(() => handle.removeEventListener("mousedown", onDown));
     }
+    const rowCount = table.rows.length;
+    for (let i = 0; i < rowCount - 1; i++) {
+      const handle = doc.createElement("div");
+      handle.className = "bpf-row-handle";
+      handle.dataset.row = String(i);
+      handle.title = "Drag to resize rows";
+      wrap.appendChild(handle);
+      const onDown = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.resizing = true;
+        this.dragSelect = null;
+        this.activeTableIndex = tableIndex;
+        handle.classList.add("is-dragging");
+        markTableTouched(table);
+        table.style.height = "";
+        const startHeights = Array.from(table.rows).map(
+          (r) => Math.max(16, Math.round(r.getBoundingClientRect().height))
+        );
+        for (let ri = 0; ri < startHeights.length; ri++) {
+          const row = table.rows[ri];
+          if (row)
+            row.style.height = `${startHeights[ri]}px`;
+        }
+        const startY = ev.clientY;
+        const above = i;
+        const below = i + 1;
+        const onMove = (mv) => {
+          const dy = mv.clientY - startY;
+          const min = 16;
+          let a = startHeights[above] + dy;
+          let b = startHeights[below] - dy;
+          if (a < min) {
+            b -= min - a;
+            a = min;
+          }
+          if (b < min) {
+            a -= min - b;
+            b = min;
+          }
+          const rowA = table.rows[above];
+          const rowB = table.rows[below];
+          if (rowA)
+            rowA.style.height = `${Math.round(a)}px`;
+          if (rowB)
+            rowB.style.height = `${Math.round(b)}px`;
+          this.syncHandlePositions(table);
+        };
+        const onUp = () => {
+          handle.classList.remove("is-dragging");
+          this.resizing = false;
+          doc.removeEventListener("mousemove", onMove);
+          doc.removeEventListener("mouseup", onUp);
+          win == null ? void 0 : win.removeEventListener("mousemove", onMove);
+          win == null ? void 0 : win.removeEventListener("mouseup", onUp);
+          this.setStatus(`Table ${tableIndex + 1} \xB7 rows updated`);
+        };
+        const win = doc.defaultView;
+        doc.addEventListener("mousemove", onMove);
+        doc.addEventListener("mouseup", onUp);
+        win == null ? void 0 : win.addEventListener("mousemove", onMove);
+        win == null ? void 0 : win.addEventListener("mouseup", onUp);
+      };
+      handle.addEventListener("mousedown", onDown);
+      this.detachFns.push(() => handle.removeEventListener("mousedown", onDown));
+    }
     const rightEdge = doc.createElement("div");
     rightEdge.className = "bpf-edge-handle-right";
     rightEdge.title = "Drag to resize table width";
@@ -2154,18 +3316,20 @@ td.bpf-cell-selected, th.bpf-cell-selected {
         this.activeTableIndex = tableIndex;
         rightEdge.classList.add("is-dragging");
         const pct = measureColWidthsPct(table);
-        applyColWidthsPct(table, pct);
         markTableTouched(table);
         const startW = table.getBoundingClientRect().width;
         const startX = ev.clientX;
         const parentW = layoutParentWidth(table) || startW * 2;
         const maxW = Math.max(80, parentW);
+        setTablePixelWidth(table, startW);
+        applyColWidthsPct(table, pct);
         const onMove = (mv) => {
           const newW = Math.min(
             maxW,
             Math.max(80, startW + (mv.clientX - startX))
           );
           setTablePixelWidth(table, newW);
+          applyColWidthsPct(table, pct);
           this.syncHandlePositions(table);
         };
         const onUp = () => {
@@ -2173,14 +3337,19 @@ td.bpf-cell-selected, th.bpf-cell-selected {
           this.resizing = false;
           doc.removeEventListener("mousemove", onMove);
           doc.removeEventListener("mouseup", onUp);
+          win == null ? void 0 : win.removeEventListener("mousemove", onMove);
+          win == null ? void 0 : win.removeEventListener("mouseup", onUp);
           this.setStatus(
             `Table ${tableIndex + 1} \xB7 width ${Math.round(
               table.getBoundingClientRect().width
             )}px`
           );
         };
+        const win = doc.defaultView;
         doc.addEventListener("mousemove", onMove);
         doc.addEventListener("mouseup", onUp);
+        win == null ? void 0 : win.addEventListener("mousemove", onMove);
+        win == null ? void 0 : win.addEventListener("mouseup", onUp);
       };
       rightEdge.addEventListener("mousedown", onDown);
       this.detachFns.push(() => rightEdge.removeEventListener("mousedown", onDown));
@@ -2200,7 +3369,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
         markTableTouched(table);
         const startH = table.getBoundingClientRect().height;
         const startY = ev.clientY;
-        const rowCount = Math.max(1, table.rows.length);
+        const rowCount2 = Math.max(1, table.rows.length);
         const startRowHeights = Array.from(table.rows).map(
           (r) => r.getBoundingClientRect().height
         );
@@ -2208,7 +3377,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
           const newH = Math.max(32, startH + (mv.clientY - startY));
           setTablePixelHeight(table, newH);
           const scale = newH / Math.max(1, startH);
-          for (let ri = 0; ri < rowCount; ri++) {
+          for (let ri = 0; ri < rowCount2; ri++) {
             const row = table.rows[ri];
             if (!row)
               continue;
@@ -2259,7 +3428,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
   equalizeSelectedColumns() {
     const ctx = this.selectedInActiveTable();
     if (!ctx || ctx.cols.size < 2) {
-      new import_obsidian3.Notice("Select two or more cells in different columns first.");
+      new import_obsidian4.Notice("Select two or more cells in different columns first.");
       return;
     }
     const { table, cols } = ctx;
@@ -2279,7 +3448,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
   equalizeSelectedRows() {
     const ctx = this.selectedInActiveTable();
     if (!ctx || ctx.rows.size < 2) {
-      new import_obsidian3.Notice("Select two or more cells in different rows first.");
+      new import_obsidian4.Notice("Select two or more cells in different rows first.");
       return;
     }
     const { table, rows } = ctx;
@@ -2297,6 +3466,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
       if (row)
         row.style.height = `${Math.round(maxH)}px`;
     }
+    table.style.height = "";
+    this.syncHandlePositions(table);
     this.setStatus(`Table ${this.activeTableIndex + 1} \xB7 row heights equalized`);
   }
   reinstallHandlesForActive() {
@@ -2343,7 +3514,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     var _a, _b;
     const root = this.root();
     if (!root) {
-      new import_obsidian3.Notice("Beautiful PDF: table editor DOM not ready");
+      new import_obsidian4.Notice("Beautiful PDF: table editor DOM not ready");
       return;
     }
     const layouts = captureNoteTableLayouts(root);
@@ -2362,28 +3533,47 @@ td.bpf-cell-selected, th.bpf-cell-selected {
     const callback = this.onApplied;
     this.close();
     callback(saved);
-    new import_obsidian3.Notice(
+    new import_obsidian4.Notice(
       saved.tables.length ? `Saved layout for ${saved.tables.length} table(s)` : "No custom table sizing to save"
     );
   }
 };
 var TableAdjustModal = _TableAdjustModal;
-/** Hit-target thickness; handles are centered on the border line. */
+/** Hit-target thickness; visual line is drawn thin via ::after. */
 TableAdjustModal.EDGE = 10;
 function layoutParentWidth(table) {
   var _a;
   const parent = (_a = table.closest(".markdown-preview-view")) != null ? _a : table.parentElement;
   if (!parent)
     return 0;
-  return parent.clientWidth || parent.getBoundingClientRect().width;
+  const style = getComputedStyle(parent);
+  const padX = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+  return (parent.clientWidth || parent.getBoundingClientRect().width) - padX;
+}
+function pageMetrics2(page) {
+  const pageWidthMm = page.pageSize === "Custom" ? page.pageWidthMm : page.pageSize === "Letter" || page.pageSize === "Legal" ? 215.9 : 210;
+  const pageHeightMm = page.pageSize === "Custom" ? page.pageHeightMm : page.pageSize === "Letter" ? 279.4 : page.pageSize === "Legal" ? 355.6 : 297;
+  const contentWidthMm2 = Math.max(
+    40,
+    pageWidthMm - page.marginLeftMm - page.marginRightMm
+  );
+  return { pageWidthMm, pageHeightMm, contentWidthMm: contentWidthMm2 };
 }
 function layoutsForFile(plugin, file) {
   var _a, _b;
   return (_b = (_a = plugin.settings.tableLayouts) == null ? void 0 : _a[file.path]) != null ? _b : null;
 }
+function tableAdjustEnabled(plugin) {
+  return getActiveProfile(plugin.settings).special.enableTableAdjust !== false;
+}
+function layoutsForExport(plugin, file) {
+  if (!tableAdjustEnabled(plugin))
+    return null;
+  return layoutsForFile(plugin, file);
+}
 
 // src/preview.ts
-var PreviewModal = class extends import_obsidian4.Modal {
+var PreviewModal = class extends import_obsidian5.Modal {
   constructor(app, plugin, file, initialLayouts) {
     super(app);
     this.iframeEl = null;
@@ -2414,12 +3604,24 @@ var PreviewModal = class extends import_obsidian4.Modal {
     };
     const refreshBtn = toolbar.createEl("button", { text: "Refresh" });
     refreshBtn.onclick = () => void this.refresh();
-    const adjustBtn = toolbar.createEl("button", { text: "Adjust tables\u2026" });
-    adjustBtn.onclick = () => {
-      new TableAdjustModal(this.app, this.plugin, this.file, (layouts) => {
-        void this.refresh(layouts);
-      }).open();
-    };
+    if (tableAdjustEnabled(this.plugin)) {
+      const adjustBtn = toolbar.createEl("button", { text: "Adjust tables\u2026" });
+      adjustBtn.onclick = () => {
+        new TableAdjustModal(this.app, this.plugin, this.file, (layouts) => {
+          void this.refresh({ tableLayouts: layouts });
+        }).open();
+      };
+    }
+    if (imageAdjustEnabled(this.plugin)) {
+      const adjustImgBtn = toolbar.createEl("button", {
+        text: "Adjust images\u2026"
+      });
+      adjustImgBtn.onclick = () => {
+        new ImageAdjustModal(this.app, this.plugin, this.file, (layouts) => {
+          void this.refresh({ imageLayouts: layouts });
+        }).open();
+      };
+    }
     const saveBtn = toolbar.createEl("button", {
       text: "Save PDF",
       cls: "mod-cta"
@@ -2427,7 +3629,8 @@ var PreviewModal = class extends import_obsidian4.Modal {
     saveBtn.onclick = async () => {
       const profile = getActiveProfile(this.plugin.settings);
       await exportPdfToFile(this.app, this.file, profile, true, {
-        tableLayouts: layoutsForFile(this.plugin, this.file)
+        tableLayouts: layoutsForExport(this.plugin, this.file),
+        imageLayouts: imageLayoutsForExport(this.plugin, this.file)
       });
     };
     this.statusEl = toolbar.createDiv({ cls: "beautiful-pdf-status", text: "" });
@@ -2443,30 +3646,38 @@ var PreviewModal = class extends import_obsidian4.Modal {
     }
   }
   /**
-   * @param layoutsOverride When provided (including null), use this instead of
-   *   reading saved settings — required right after Adjust tables.
+   * @param override When provided, merge with saved layouts for the other kind.
    */
-  async refresh(layoutsOverride) {
-    var _a;
+  async refresh(override) {
+    var _a, _b, _c, _d;
     const token = ++this.genToken;
     this.setStatus("Generating PDF\u2026");
     try {
       const profile = getActiveProfile(this.plugin.settings);
-      const layouts = arguments.length >= 1 ? layoutsOverride : layoutsForFile(this.plugin, this.file);
+      const tableLayouts = tableAdjustEnabled(this.plugin) ? override && "tableLayouts" in override ? (_a = override.tableLayouts) != null ? _a : null : layoutsForExport(this.plugin, this.file) : null;
+      const imageLayouts = imageAdjustEnabled(this.plugin) ? override && "imageLayouts" in override ? (_b = override.imageLayouts) != null ? _b : null : imageLayoutsForExport(this.plugin, this.file) : null;
       const { data } = await generatePdf(this.app, this.file, profile, {
-        tableLayouts: layouts
+        tableLayouts,
+        imageLayouts
       });
       if (token !== this.genToken)
         return;
       this.showPdf(data);
-      const layoutNote = ((_a = layouts == null ? void 0 : layouts.tables) == null ? void 0 : _a.length) ? ` \xB7 ${layouts.tables.length} custom table(s)` : "";
+      const notes = [];
+      if ((_c = tableLayouts == null ? void 0 : tableLayouts.tables) == null ? void 0 : _c.length) {
+        notes.push(`${tableLayouts.tables.length} custom table(s)`);
+      }
+      if ((_d = imageLayouts == null ? void 0 : imageLayouts.images) == null ? void 0 : _d.length) {
+        notes.push(`${imageLayouts.images.length} custom image(s)`);
+      }
+      const layoutNote = notes.length ? ` \xB7 ${notes.join(" \xB7 ")}` : "";
       this.setStatus(`Profile: ${profile.name}${layoutNote}`);
     } catch (err) {
       if (token !== this.genToken)
         return;
       console.error(err);
       this.setStatus("Failed");
-      new import_obsidian4.Notice(`Preview failed: ${String(err)}`);
+      new import_obsidian5.Notice(`Preview failed: ${String(err)}`);
     }
   }
   showPdf(data) {
@@ -2488,7 +3699,7 @@ var PreviewModal = class extends import_obsidian4.Modal {
     this.contentEl.empty();
   }
 };
-var ProfileSuggestModal = class extends import_obsidian4.Modal {
+var ProfileSuggestModal = class extends import_obsidian5.Modal {
   constructor(app, plugin, file, onChoose) {
     super(app);
     this.plugin = plugin;
@@ -2500,7 +3711,7 @@ var ProfileSuggestModal = class extends import_obsidian4.Modal {
     contentEl.empty();
     contentEl.createEl("h2", { text: "Choose profile" });
     for (const profile of this.plugin.settings.profiles) {
-      new import_obsidian4.Setting(contentEl).setName(profile.name).addButton(
+      new import_obsidian5.Setting(contentEl).setName(profile.name).addButton(
         (btn) => btn.setButtonText("Export").onClick(() => {
           this.close();
           this.onChoose(profile);
@@ -2511,10 +3722,10 @@ var ProfileSuggestModal = class extends import_obsidian4.Modal {
 };
 
 // src/settings.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/fonts.ts
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 var FALLBACK_FONTS = [
   "Arial",
   "Calibri",
@@ -2736,7 +3947,7 @@ function clearFontCache() {
   cachedFamilies = null;
   loading = null;
 }
-var FontSuggestModal = class extends import_obsidian5.FuzzySuggestModal {
+var FontSuggestModal = class extends import_obsidian6.FuzzySuggestModal {
   constructor(app, fonts, onPick) {
     super(app);
     this.fonts = fonts;
@@ -2768,22 +3979,27 @@ async function openFontPicker(app, onPick) {
   clearFontCache();
   const fonts = await listSystemFontFamilies();
   if (fonts.length === 0) {
-    new import_obsidian5.Notice("Beautiful PDF: no fonts found on this system.");
+    new import_obsidian6.Notice("Beautiful PDF: no fonts found on this system.");
     return;
   }
   new FontSuggestModal(app, fonts, onPick).open();
 }
 
 // src/settings.ts
-var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
+var BeautifulPdfSettingTab = class extends import_obsidian7.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.ui = {
+      settingsTab: "page",
       specialOpen: false,
+      pageBreakOpen: false,
+      tableAdjustOpen: false,
+      imageAdjustOpen: false,
       pageSizeOpen: false,
       marginsOpen: false,
-      pageNumberOpen: false,
-      headerFooterOpen: false,
+      headerOpen: false,
+      footerOpen: false,
+      placeholdersOpen: false,
       morePageOpen: false,
       groupOpen: {},
       elementOpen: {}
@@ -2829,21 +4045,17 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
   }
   renderAll(containerEl) {
     this.renderProfiles(containerEl);
-    this.renderPageSection(containerEl);
-    this.renderSpecialSection(containerEl);
-    this.renderElementsSection(containerEl);
-    const tip = containerEl.createDiv({ cls: "beautiful-pdf-tip" });
-    tip.createEl("strong", { text: "Page break: " });
-    tip.appendText("Insert ");
-    tip.createEl("code", { text: "%%pdf-pagebreak%%" });
-    tip.appendText(" in a note, or use the command ");
-    tip.createEl("code", { text: "Insert page break" });
-    tip.appendText(".");
+    this.renderProfileDependent(containerEl);
   }
   /* ---------- Profiles ---------- */
   renderProfiles(containerEl) {
-    const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-    new import_obsidian6.Setting(section).setName("Document profiles").setHeading();
+    const section = containerEl.createDiv({
+      cls: "beautiful-pdf-section beautiful-pdf-profile-picker"
+    });
+    section.createEl("h2", {
+      cls: "beautiful-pdf-profile-title",
+      text: "Document Profile"
+    });
     const chips = section.createDiv({ cls: "beautiful-pdf-profile-chips" });
     for (const p of this.plugin.settings.profiles) {
       const chip = chips.createEl("button", {
@@ -2871,11 +4083,11 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
       };
     };
     mkAction("New profile", "", async () => {
-      const profile2 = createBlankProfile(
+      const profile = createBlankProfile(
         `Profile ${this.plugin.settings.profiles.length + 1}`
       );
-      this.plugin.settings.profiles.push(profile2);
-      this.plugin.settings.activeProfileId = profile2.id;
+      this.plugin.settings.profiles.push(profile);
+      this.plugin.settings.activeProfileId = profile.id;
       await this.plugin.saveSettings();
       this.display();
     });
@@ -2898,27 +4110,69 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
       await this.plugin.saveSettings();
       this.display();
     });
-    section.createEl("hr", { cls: "beautiful-pdf-divider" });
+  }
+  /** Page / Markdown / Add-ons belong to the selected profile. */
+  renderProfileDependent(containerEl) {
     const profile = getActiveProfile(this.plugin.settings);
-    new import_obsidian6.Setting(section).setName("Profile name").addText(
+    const wrap = containerEl.createDiv({ cls: "beautiful-pdf-profile-dependent" });
+    wrap.createDiv({
+      cls: "beautiful-pdf-profile-dependent-label",
+      text: `Settings for \u201C${profile.name}\u201D`
+    });
+    new import_obsidian7.Setting(wrap).setName("Profile name").addText(
       (text) => text.setValue(profile.name).onChange((v) => {
         void (async () => {
           profile.name = v.trim() || profile.name;
           await this.plugin.saveSettings();
-          const active = chips.querySelector(".is-active");
+          const active = containerEl.querySelector(
+            ".beautiful-pdf-profile-chip.is-active"
+          );
           if (active)
             active.setText(profile.name);
+          const label = wrap.querySelector(
+            ".beautiful-pdf-profile-dependent-label"
+          );
+          if (label)
+            label.setText(`Settings for \u201C${profile.name}\u201D`);
         })();
       })
     );
+    this.renderSettingsTabs(wrap);
+  }
+  /* ---------- Tabs ---------- */
+  renderSettingsTabs(containerEl) {
+    const tabs = containerEl.createDiv({ cls: "beautiful-pdf-tabs" });
+    const items = [
+      { id: "page", label: "Page" },
+      { id: "markdown", label: "Markdown" },
+      { id: "addons", label: "Add-ons" }
+    ];
+    for (const item of items) {
+      const btn = tabs.createEl("button", {
+        cls: "beautiful-pdf-tab" + (this.ui.settingsTab === item.id ? " is-active" : ""),
+        text: item.label,
+        attr: { type: "button" }
+      });
+      btn.onclick = () => {
+        if (this.ui.settingsTab === item.id)
+          return;
+        this.ui.settingsTab = item.id;
+        this.display();
+      };
+    }
+    const panel = containerEl.createDiv({ cls: "beautiful-pdf-tab-panel" });
+    if (this.ui.settingsTab === "page")
+      this.renderPageSection(panel);
+    else if (this.ui.settingsTab === "markdown")
+      this.renderElementsSection(panel);
+    else
+      this.renderSpecialSection(panel);
   }
   /* ---------- Page ---------- */
   renderPageSection(containerEl) {
-    var _a;
     const page = getActiveProfile(this.plugin.settings).page;
     page.lineHeight = toLineHeightPercent(page.lineHeight);
     const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-    new import_obsidian6.Setting(section).setName("Page").setHeading();
     const sizeSummary = page.pageSize === "Custom" ? `Custom ${page.pageWidthMm}\xD7${page.pageHeightMm} mm` : page.pageSize;
     this.collapsible(
       section,
@@ -2929,7 +4183,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
         this.ui.pageSizeOpen = open;
       },
       (body) => {
-        new import_obsidian6.Setting(body).setName("Size").addDropdown((dd) => {
+        new import_obsidian7.Setting(body).setName("Size").addDropdown((dd) => {
           ["A4", "Letter", "Legal", "Custom"].forEach((s) => {
             dd.addOption(s, s);
           });
@@ -2974,110 +4228,76 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
         });
       }
     );
-    const pnLabel = (_a = {
-      none: "None",
-      "bottom-center": "Bottom center",
-      "bottom-right": "Bottom right",
-      "top-center": "Top center"
-    }[page.pageNumber]) != null ? _a : page.pageNumber;
     this.collapsible(
       section,
-      "Page numbers",
-      pnLabel,
-      this.ui.pageNumberOpen,
+      "Header",
+      this.hfSlotSummary(page.headerLeft, page.headerCenter, page.headerRight),
+      this.ui.headerOpen,
       (o) => {
-        this.ui.pageNumberOpen = o;
+        this.ui.headerOpen = o;
       },
       (inner) => {
-        new import_obsidian6.Setting(inner).setName("Position").addDropdown((dd) => {
-          const opts = {
-            none: "None",
-            "bottom-center": "Bottom center",
-            "bottom-right": "Bottom right",
-            "top-center": "Top center"
-          };
-          Object.keys(opts).forEach((k) => {
-            dd.addOption(k, opts[k]);
-          });
-          dd.setValue(page.pageNumber).onChange((v) => {
-            void (async () => {
-              page.pageNumber = v;
-              await this.plugin.saveSettings();
-              this.display();
-            })();
-          });
+        this.addHfSlot(inner, "Left", page.headerLeft, page.headerLeftStyle, async (text, style) => {
+          page.headerLeft = text;
+          page.headerLeftStyle = style;
         });
-        new import_obsidian6.Setting(inner).setName("Format").addText(
-          (t) => t.setPlaceholder("{page} / {pages}").setValue(page.pageNumberFormat).onChange((v) => {
-            void (async () => {
-              page.pageNumberFormat = v;
-              await this.plugin.saveSettings();
-            })();
-          })
-        );
+        this.addHfSlot(inner, "Center", page.headerCenter, page.headerCenterStyle, async (text, style) => {
+          page.headerCenter = text;
+          page.headerCenterStyle = style;
+        });
+        this.addHfSlot(inner, "Right", page.headerRight, page.headerRightStyle, async (text, style) => {
+          page.headerRight = text;
+          page.headerRightStyle = style;
+        });
+        this.addPlaceholderTip(inner);
       }
     );
-    const hfSummary = [
-      page.headerText ? `Header (${page.headerAlign})` : null,
-      page.footerText ? `Footer (${page.footerAlign})` : null
-    ].filter(Boolean).join(" \xB7 ") || "None";
     this.collapsible(
       section,
-      "Header \xB7 footer",
-      hfSummary,
-      this.ui.headerFooterOpen,
+      "Footer",
+      this.hfSlotSummary(page.footerLeft, page.footerCenter, page.footerRight),
+      this.ui.footerOpen,
       (o) => {
-        this.ui.headerFooterOpen = o;
+        this.ui.footerOpen = o;
       },
       (inner) => {
-        new import_obsidian6.Setting(inner).setName("Header text").addText(
-          (t) => t.setValue(page.headerText).onChange((v) => {
-            void (async () => {
-              page.headerText = v;
-              await this.plugin.saveSettings();
-            })();
-          })
-        );
-        new import_obsidian6.Setting(inner).setName("Header align").addDropdown((dd) => {
-          var _a2;
-          this.addHfAlignOptions(dd);
-          dd.setValue((_a2 = page.headerAlign) != null ? _a2 : "left").onChange((v) => {
-            void (async () => {
-              page.headerAlign = v;
-              await this.plugin.saveSettings();
-            })();
-          });
+        this.addHfSlot(inner, "Left", page.footerLeft, page.footerLeftStyle, async (text, style) => {
+          page.footerLeft = text;
+          page.footerLeftStyle = style;
         });
-        new import_obsidian6.Setting(inner).setName("Footer text").addText(
-          (t) => t.setValue(page.footerText).onChange((v) => {
-            void (async () => {
-              page.footerText = v;
-              await this.plugin.saveSettings();
-            })();
-          })
-        );
-        new import_obsidian6.Setting(inner).setName("Footer align").addDropdown((dd) => {
-          var _a2;
-          this.addHfAlignOptions(dd);
-          dd.setValue((_a2 = page.footerAlign) != null ? _a2 : "center").onChange((v) => {
-            void (async () => {
-              page.footerAlign = v;
-              await this.plugin.saveSettings();
-            })();
-          });
+        this.addHfSlot(inner, "Center", page.footerCenter, page.footerCenterStyle, async (text, style) => {
+          page.footerCenter = text;
+          page.footerCenterStyle = style;
         });
+        this.addHfSlot(inner, "Right", page.footerRight, page.footerRightStyle, async (text, style) => {
+          page.footerRight = text;
+          page.footerRightStyle = style;
+        });
+        this.addPlaceholderTip(inner);
       }
+    );
+    const lhBox = section.createDiv({ cls: "beautiful-pdf-row-box" });
+    new import_obsidian7.Setting(lhBox).setName("Default line height (%)").addText(
+      (t) => t.setValue(String(page.lineHeight)).onChange((v) => {
+        void (async () => {
+          const n = parseFloat(v);
+          if (!Number.isNaN(n) && n > 0) {
+            page.lineHeight = toLineHeightPercent(n);
+            await this.plugin.saveSettings();
+          }
+        })();
+      })
     );
     this.collapsible(
       section,
       "More",
-      `Line height ${page.lineHeight}% \xB7 background ${page.printBackground ? "on" : "off"}`,
+      `Filename title ${page.useFilenameAsTitle ? "on" : "off"} \xB7 background ${page.printBackground ? "on" : "off"}`,
       this.ui.morePageOpen,
       (o) => {
         this.ui.morePageOpen = o;
       },
       (inner) => {
-        new import_obsidian6.Setting(inner).setName("Use filename as title").addToggle(
+        new import_obsidian7.Setting(inner).setName("Use filename as title").addToggle(
           (tg) => tg.setValue(page.useFilenameAsTitle).onChange((v) => {
             void (async () => {
               page.useFilenameAsTitle = v;
@@ -3085,18 +4305,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
             })();
           })
         );
-        new import_obsidian6.Setting(inner).setName("Default line height (%)").addText(
-          (t) => t.setValue(String(page.lineHeight)).onChange((v) => {
-            void (async () => {
-              const n = parseFloat(v);
-              if (!Number.isNaN(n) && n > 0) {
-                page.lineHeight = toLineHeightPercent(n);
-                await this.plugin.saveSettings();
-              }
-            })();
-          })
-        );
-        new import_obsidian6.Setting(inner).setName("Print background").addToggle(
+        new import_obsidian7.Setting(inner).setName("Print background").addToggle(
           (tg) => tg.setValue(page.printBackground).onChange((v) => {
             void (async () => {
               page.printBackground = v;
@@ -3107,10 +4316,70 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
       }
     );
   }
-  addHfAlignOptions(dd) {
-    dd.addOption("left", "Left");
-    dd.addOption("center", "Center");
-    dd.addOption("right", "Right");
+  hfSlotSummary(left, center, right) {
+    const cells = [left, center, right].map((s) => (s != null ? s : "").trim());
+    if (!cells.some(Boolean))
+      return "None";
+    return cells.map((s) => {
+      if (!s)
+        return "\u2014";
+      return s.length > 16 ? `${s.slice(0, 16)}\u2026` : s;
+    }).join(" \xB7 ");
+  }
+  addHfSlot(parent, name, value, styleKey, onChange) {
+    let text = value != null ? value : "";
+    let style = styleKey != null ? styleKey : "";
+    const setting = new import_obsidian7.Setting(parent).setName(name);
+    setting.addText(
+      (t) => t.setPlaceholder("None").setValue(text).onChange((v) => {
+        text = v;
+        void (async () => {
+          await onChange(text, style);
+          await this.plugin.saveSettings();
+        })();
+      })
+    );
+    setting.addDropdown((dd) => {
+      dd.addOption("", "Default");
+      for (const key of ELEMENT_KEYS) {
+        dd.addOption(key, ELEMENT_LABELS[key]);
+      }
+      dd.setValue(style).onChange((v) => {
+        style = v;
+        void (async () => {
+          await onChange(text, style);
+          await this.plugin.saveSettings();
+        })();
+      });
+    });
+  }
+  addPlaceholderTip(parent) {
+    const tip = parent.createDiv({ cls: "beautiful-pdf-tip" });
+    tip.appendText("Use ordinary text and/or placeholders. ");
+    tip.createEl("code", { text: "{{page}}" });
+    tip.appendText(" current page \xB7 ");
+    tip.createEl("code", { text: "{{pages}}" });
+    tip.appendText(" total pages \xB7 ");
+    tip.createEl("code", { text: "{{date}}" });
+    tip.appendText(" today \xB7 ");
+    tip.createEl("code", { text: "{{title}}" });
+    tip.appendText(" \xB7 ");
+    tip.createEl("code", { text: "{{filename}}" });
+    tip.appendText(" \xB7 ");
+    tip.createEl("code", { text: "{{folder}}" });
+    tip.appendText(" \xB7 ");
+    tip.createEl("code", { text: "{{vault}}" });
+    tip.appendText(" \xB7 ");
+    tip.createEl("code", { text: "{{ctime}}" });
+    tip.appendText(" created \xB7 ");
+    tip.createEl("code", { text: "{{mtime}}" });
+    tip.appendText(" last edited. A note property becomes ");
+    tip.createEl("code", { text: "{{name}}" });
+    tip.appendText(" (for example ");
+    tip.createEl("code", { text: "{{author}}" });
+    tip.appendText(" from Properties). Missing values stay blank. Example: ");
+    tip.createEl("code", { text: "{{title}}  {{page}}/{{pages}}" });
+    tip.appendText(".");
   }
   /* ---------- Extras (PDF-only) ---------- */
   renderSpecialSection(containerEl) {
@@ -3118,7 +4387,6 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
     const special = profile.special;
     const summary = special.styleOrderedListsAsHeadings ? `Ordered lists \u2192 H${special.orderedListHeadingLevel1}/H${special.orderedListHeadingLevel2}/H${special.orderedListHeadingLevel3}` : "Off";
     const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-    new import_obsidian6.Setting(section).setName("Extras").setHeading();
     this.collapsible(
       section,
       "Numbered lists as headings",
@@ -3132,7 +4400,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
         tip.appendText(
           "PDF-only. Write normal numbered lists (1. 2. 3.) in the note \u2014 Obsidian keeps auto-numbering. In the PDF those items use a heading style; # headings and body text stay as usual."
         );
-        new import_obsidian6.Setting(body).setName("Enable").setDesc("Apply heading look to ordered-list items in the PDF only").addToggle(
+        new import_obsidian7.Setting(body).setName("Enable").setDesc("Apply heading look to ordered-list items in the PDF only").addToggle(
           (tg) => tg.setValue(special.styleOrderedListsAsHeadings).onChange((v) => {
             void (async () => {
               special.styleOrderedListsAsHeadings = v;
@@ -3144,7 +4412,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
         if (!special.styleOrderedListsAsHeadings)
           return;
         const addLevel = (name, key) => {
-          new import_obsidian6.Setting(body).setName(name).addDropdown((dd) => {
+          new import_obsidian7.Setting(body).setName(name).addDropdown((dd) => {
             for (let i = 1; i <= 6; i++)
               dd.addOption(String(i), `H${i} style`);
             dd.setValue(String(special[key])).onChange((v) => {
@@ -3161,12 +4429,117 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
         addLevel("Deeper nested level", "orderedListHeadingLevel3");
       }
     );
+    this.collapsible(
+      section,
+      "Page break",
+      special.enablePageBreaks ? "On" : "Off",
+      this.ui.pageBreakOpen,
+      (open) => {
+        this.ui.pageBreakOpen = open;
+      },
+      (body) => {
+        new import_obsidian7.Setting(body).setName("Enable").setDesc("Turn %%pdf-pagebreak%% markers into PDF page breaks").addToggle(
+          (tg) => tg.setValue(special.enablePageBreaks).onChange((v) => {
+            void (async () => {
+              special.enablePageBreaks = v;
+              await this.plugin.saveSettings();
+              this.display();
+            })();
+          })
+        );
+        if (!special.enablePageBreaks)
+          return;
+        const tip = body.createDiv({ cls: "beautiful-pdf-tip" });
+        tip.appendText("Insert ");
+        tip.createEl("code", { text: "%%pdf-pagebreak%%" });
+        tip.appendText(" in a note, or use the command ");
+        tip.createEl("code", { text: "Insert page break" });
+        tip.appendText(".");
+      }
+    );
+    this.collapsible(
+      section,
+      "Adjust tables",
+      special.enableTableAdjust ? "On" : "Off",
+      this.ui.tableAdjustOpen,
+      (open) => {
+        this.ui.tableAdjustOpen = open;
+      },
+      (body) => {
+        new import_obsidian7.Setting(body).setName("Enable").setDesc("Optional step to resize table columns and rows before PDF").addToggle(
+          (tg) => tg.setValue(special.enableTableAdjust).onChange((v) => {
+            void (async () => {
+              special.enableTableAdjust = v;
+              await this.plugin.saveSettings();
+              this.display();
+            })();
+          })
+        );
+        if (!special.enableTableAdjust)
+          return;
+        const tip = body.createDiv({ cls: "beautiful-pdf-tip" });
+        tip.appendText(
+          "PDF-only. Use Adjust tables\u2026 in preview, the command palette, or the file menu to drag column and row sizes. Saved layouts apply on preview and export."
+        );
+      }
+    );
+    this.collapsible(
+      section,
+      "Adjust images",
+      special.enableImageAdjust ? "On" : "Off",
+      this.ui.imageAdjustOpen,
+      (open) => {
+        this.ui.imageAdjustOpen = open;
+      },
+      (body) => {
+        new import_obsidian7.Setting(body).setName("Enable").setDesc("Optional step to set image size and alignment before PDF").addToggle(
+          (tg) => tg.setValue(special.enableImageAdjust).onChange((v) => {
+            void (async () => {
+              special.enableImageAdjust = v;
+              await this.plugin.saveSettings();
+              this.display();
+            })();
+          })
+        );
+        if (!special.enableImageAdjust)
+          return;
+        const tip = body.createDiv({ cls: "beautiful-pdf-tip" });
+        tip.appendText(
+          "PDF-only. Use Adjust images\u2026 to pick size (S/M/L/Full) and block alignment (left/center/right). Text wrap around images is not supported in print. Saved layouts apply on preview and export."
+        );
+      }
+    );
+    this.collapsible(
+      section,
+      "Header & footer placeholders",
+      special.enablePlaceholders ? "On" : "Off",
+      this.ui.placeholdersOpen,
+      (open) => {
+        this.ui.placeholdersOpen = open;
+      },
+      (body) => {
+        new import_obsidian7.Setting(body).setName("Enable").setDesc("Replace {{page}}, {{title}}, and other placeholders in header/footer").addToggle(
+          (tg) => tg.setValue(special.enablePlaceholders).onChange((v) => {
+            void (async () => {
+              special.enablePlaceholders = v;
+              await this.plugin.saveSettings();
+              this.display();
+            })();
+          })
+        );
+        if (!special.enablePlaceholders)
+          return;
+        const tip = body.createDiv({ cls: "beautiful-pdf-tip" });
+        tip.appendText(
+          "When on, placeholders in Page \u2192 Header / Footer become real values in the PDF (page numbers, note title, Properties fields, file dates, and so on). When off, the {{braces}} print as written."
+        );
+      }
+    );
   }
   /* ---------- Markdown elements ---------- */
   renderElementsSection(containerEl) {
     var _a;
     const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-    new import_obsidian6.Setting(section).setName("Markdown elements").setHeading();
     const elements = getActiveProfile(this.plugin.settings).elements;
     for (const group of ELEMENT_GROUPS) {
       const open = (_a = this.ui.groupOpen[group.id]) != null ? _a : false;
@@ -3212,7 +4585,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
     const editors = row.createDiv({ cls: "beautiful-pdf-el-editors" });
     const refreshPreview = () => this.paintPreview(preview, key, style);
     if (ELEMENTS_WITH_FRAME.includes(key)) {
-      new import_obsidian6.Setting(editors).setName("Box style").addDropdown((dd) => {
+      new import_obsidian7.Setting(editors).setName("Box style").addDropdown((dd) => {
         var _a2;
         for (const opt of FRAME_PRESET_OPTIONS) {
           dd.addOption(opt.id, opt.label);
@@ -3226,7 +4599,52 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
         });
       });
     }
-    const fontSetting = new import_obsidian6.Setting(editors).setName("Font");
+    if (key === "hr") {
+      new import_obsidian7.Setting(editors).setName("Line style").addDropdown((dd) => {
+        var _a2;
+        for (const opt of HR_PRESET_OPTIONS) {
+          dd.addOption(opt.id, opt.label);
+        }
+        dd.setValue((_a2 = style.hrPreset) != null ? _a2 : "solid").onChange((v) => {
+          void (async () => {
+            style.hrPreset = v;
+            await this.plugin.saveSettings();
+            refreshPreview();
+          })();
+        });
+      });
+      this.addColorSetting(editors, "Line color", style.color, async (v) => {
+        style.color = v;
+        await this.plugin.saveSettings();
+        refreshPreview();
+      });
+      new import_obsidian7.Setting(editors).setName("Margin top (pt)").addText(
+        (t) => t.setValue(String(style.marginTop)).onChange((v) => {
+          void (async () => {
+            const n = parseFloat(v);
+            if (!Number.isNaN(n)) {
+              style.marginTop = n;
+              await this.plugin.saveSettings();
+              refreshPreview();
+            }
+          })();
+        })
+      );
+      new import_obsidian7.Setting(editors).setName("Margin bottom (pt)").addText(
+        (t) => t.setValue(String(style.marginBottom)).onChange((v) => {
+          void (async () => {
+            const n = parseFloat(v);
+            if (!Number.isNaN(n)) {
+              style.marginBottom = n;
+              await this.plugin.saveSettings();
+              refreshPreview();
+            }
+          })();
+        })
+      );
+      return;
+    }
+    const fontSetting = new import_obsidian7.Setting(editors).setName("Font");
     let fontText = null;
     fontSetting.addText((t) => {
       fontText = t;
@@ -3248,7 +4666,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
         });
       })
     );
-    new import_obsidian6.Setting(editors).setName("Size (pt)").addText(
+    new import_obsidian7.Setting(editors).setName("Size (pt)").addText(
       (t) => t.setValue(String(style.fontSize)).onChange((v) => {
         void (async () => {
           const n = parseFloat(v);
@@ -3260,7 +4678,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
         })();
       })
     );
-    new import_obsidian6.Setting(editors).setName("Weight").addDropdown((dd) => {
+    new import_obsidian7.Setting(editors).setName("Weight").addDropdown((dd) => {
       ["normal", "bold", "300", "500", "600", "700"].forEach(
         (w) => {
           dd.addOption(w, w);
@@ -3274,7 +4692,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
         })();
       });
     });
-    new import_obsidian6.Setting(editors).setName("Align").addDropdown((dd) => {
+    new import_obsidian7.Setting(editors).setName("Align").addDropdown((dd) => {
       ["left", "center", "right", "justify"].forEach((a) => {
         dd.addOption(a, a);
       });
@@ -3303,7 +4721,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
         }
       );
     }
-    new import_obsidian6.Setting(editors).setName("Margin top (pt)").addText(
+    new import_obsidian7.Setting(editors).setName("Margin top (pt)").addText(
       (t) => t.setValue(String(style.marginTop)).onChange((v) => {
         void (async () => {
           const n = parseFloat(v);
@@ -3315,7 +4733,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
         })();
       })
     );
-    new import_obsidian6.Setting(editors).setName("Margin bottom (pt)").addText(
+    new import_obsidian7.Setting(editors).setName("Margin bottom (pt)").addText(
       (t) => t.setValue(String(style.marginBottom)).onChange((v) => {
         void (async () => {
           const n = parseFloat(v);
@@ -3328,7 +4746,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
       })
     );
     if (style.lineHeight != null) {
-      new import_obsidian6.Setting(editors).setName("Line height (%)").addText(
+      new import_obsidian7.Setting(editors).setName("Line height (%)").addText(
         (t) => t.setValue(String(style.lineHeight)).onChange((v) => {
           void (async () => {
             const n = parseFloat(v);
@@ -3344,7 +4762,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
   }
   addColorSetting(parent, name, value, onChange) {
     var _a;
-    const setting = new import_obsidian6.Setting(parent).setName(name);
+    const setting = new import_obsidian7.Setting(parent).setName(name);
     let textComp = null;
     const initial = (_a = normalizeHex(value)) != null ? _a : "#1a1a1a";
     setting.addText((t) => {
@@ -3402,7 +4820,8 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
       dynamic.fontFamily = style.fontFamily;
     }
     if (key === "hr") {
-      sample.addClass("is-hr");
+      applyHrPreview(sample, style);
+      return;
     }
     if (key === "link") {
       sample.addClass("is-link");
@@ -3445,7 +4864,7 @@ var BeautifulPdfSettingTab = class extends import_obsidian6.PluginSettingTab {
     }
   }
   numSetting(containerEl, name, value, onChange) {
-    new import_obsidian6.Setting(containerEl).setName(name).addText(
+    new import_obsidian7.Setting(containerEl).setName(name).addText(
       (t) => t.setValue(String(value)).onChange((v) => {
         void (async () => {
           const n = parseFloat(v);
@@ -3472,7 +4891,7 @@ function normalizeHex(value) {
 }
 
 // src/main.ts
-var BeautifulPdfPlugin = class extends import_obsidian7.Plugin {
+var BeautifulPdfPlugin = class extends import_obsidian8.Plugin {
   async onload() {
     await this.loadSettings();
     this.addSettingTab(new BeautifulPdfSettingTab(this.app, this));
@@ -3495,12 +4914,35 @@ var BeautifulPdfPlugin = class extends import_obsidian7.Plugin {
       id: "adjust-tables",
       name: "Adjust tables for PDF\u2026",
       checkCallback: (checking) => {
+        if (!tableAdjustEnabled(this))
+          return false;
         const file = this.getActiveMarkdownFile();
         if (!file)
           return false;
         if (!checking) {
           new TableAdjustModal(this.app, this, file, (layouts) => {
-            new PreviewModal(this.app, this, file, layouts).open();
+            new PreviewModal(this.app, this, file, {
+              tableLayouts: layouts
+            }).open();
+          }).open();
+        }
+        return true;
+      }
+    });
+    this.addCommand({
+      id: "adjust-images",
+      name: "Adjust images for PDF\u2026",
+      checkCallback: (checking) => {
+        if (!imageAdjustEnabled(this))
+          return false;
+        const file = this.getActiveMarkdownFile();
+        if (!file)
+          return false;
+        if (!checking) {
+          new ImageAdjustModal(this.app, this, file, (layouts) => {
+            new PreviewModal(this.app, this, file, {
+              imageLayouts: layouts
+            }).open();
           }).open();
         }
         return true;
@@ -3516,7 +4958,8 @@ var BeautifulPdfPlugin = class extends import_obsidian7.Plugin {
         if (!checking) {
           const profile = getActiveProfile(this.settings);
           void exportPdfToFile(this.app, file, profile, true, {
-            tableLayouts: layoutsForFile(this, file)
+            tableLayouts: layoutsForExport(this, file),
+            imageLayouts: imageLayoutsForExport(this, file)
           });
         }
         return true;
@@ -3532,7 +4975,8 @@ var BeautifulPdfPlugin = class extends import_obsidian7.Plugin {
         if (!checking) {
           new ProfileSuggestModal(this.app, this, file, (profile) => {
             void exportPdfToFile(this.app, file, profile, true, {
-              tableLayouts: layoutsForFile(this, file)
+              tableLayouts: layoutsForExport(this, file),
+              imageLayouts: imageLayoutsForExport(this, file)
             });
           }).open();
         }
@@ -3553,13 +4997,14 @@ ${PAGE_BREAK_SNIPPET}` : PAGE_BREAK_SNIPPET;
     });
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
-        if (!(file instanceof import_obsidian7.TFile) || file.extension !== "md")
+        if (!(file instanceof import_obsidian8.TFile) || file.extension !== "md")
           return;
         menu.addItem((item) => {
           item.setTitle("Beautiful PDF: Export").setIcon("file-text").onClick(() => {
             const profile = getActiveProfile(this.settings);
             void exportPdfToFile(this.app, file, profile, true, {
-              tableLayouts: layoutsForFile(this, file)
+              tableLayouts: layoutsForExport(this, file),
+              imageLayouts: imageLayoutsForExport(this, file)
             });
           });
         });
@@ -3568,31 +5013,46 @@ ${PAGE_BREAK_SNIPPET}` : PAGE_BREAK_SNIPPET;
             void this.openPreview(file);
           });
         });
-        menu.addItem((item) => {
-          item.setTitle("Beautiful PDF: Adjust tables\u2026").setIcon("table").onClick(() => {
-            new TableAdjustModal(this.app, this, file, (layouts) => {
-              new PreviewModal(this.app, this, file, layouts).open();
-            }).open();
+        if (tableAdjustEnabled(this)) {
+          menu.addItem((item) => {
+            item.setTitle("Beautiful PDF: Adjust tables\u2026").setIcon("table").onClick(() => {
+              new TableAdjustModal(this.app, this, file, (layouts) => {
+                new PreviewModal(this.app, this, file, {
+                  tableLayouts: layouts
+                }).open();
+              }).open();
+            });
           });
-        });
+        }
+        if (imageAdjustEnabled(this)) {
+          menu.addItem((item) => {
+            item.setTitle("Beautiful PDF: Adjust images\u2026").setIcon("image").onClick(() => {
+              new ImageAdjustModal(this.app, this, file, (layouts) => {
+                new PreviewModal(this.app, this, file, {
+                  imageLayouts: layouts
+                }).open();
+              }).open();
+            });
+          });
+        }
       })
     );
   }
   async openPreview(file) {
     const target = file != null ? file : this.getActiveMarkdownFile();
     if (!target) {
-      new import_obsidian7.Notice("Open a Markdown note first.");
+      new import_obsidian8.Notice("Open a Markdown note first.");
       return;
     }
     new PreviewModal(this.app, this, target).open();
   }
   getActiveMarkdownFile() {
     var _a;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
     return (_a = view == null ? void 0 : view.file) != null ? _a : null;
   }
   async loadSettings() {
-    var _a, _b, _c;
+    var _a, _b, _c, _d;
     const defaults = createDefaultSettings();
     const data = await this.loadData();
     if (!data || !Array.isArray(data.profiles) || data.profiles.length === 0) {
@@ -3612,7 +5072,8 @@ ${PAGE_BREAK_SNIPPET}` : PAGE_BREAK_SNIPPET;
       settingsVersion: SETTINGS_VERSION,
       activeProfileId: (_b = data.activeProfileId) != null ? _b : defaults.activeProfileId,
       profiles: profiles.map((p) => mergeProfile(p, fallbackElements)),
-      tableLayouts: (_c = data.tableLayouts) != null ? _c : {}
+      tableLayouts: (_c = data.tableLayouts) != null ? _c : {},
+      imageLayouts: (_d = data.imageLayouts) != null ? _d : {}
     };
     if (!this.settings.profiles.some((p) => p.id === this.settings.activeProfileId)) {
       this.settings.activeProfileId = this.settings.profiles[0].id;
@@ -3640,6 +5101,7 @@ function mergeProfile(raw, fallback) {
   const defaultPage = createDefaultSettings().profiles[0].page;
   const page = { ...defaultPage, ...raw.page };
   page.lineHeight = toLineHeightPercent(page.lineHeight, defaultPage.lineHeight);
+  migrateLegacyHeaderFooter(raw.page, page);
   const special = createDefaultSpecialOptions(raw.special);
   special.orderedListHeadingLevel1 = clampLevel(special.orderedListHeadingLevel1, 2);
   special.orderedListHeadingLevel2 = clampLevel(special.orderedListHeadingLevel2, 3);
@@ -3656,4 +5118,78 @@ function clampLevel(n, fallback) {
   if (!Number.isFinite(n))
     return fallback;
   return Math.min(6, Math.max(1, Math.round(n)));
+}
+function migrateLegacyHeaderFooter(raw, page) {
+  var _a, _b, _c, _d, _e, _f;
+  if (!raw)
+    return;
+  const hasNew = raw.headerLeft != null || raw.headerCenter != null || raw.headerRight != null || raw.footerLeft != null || raw.footerCenter != null || raw.footerRight != null;
+  if (hasNew) {
+    stripLegacyPageKeys(page);
+    return;
+  }
+  page.headerLeft = "";
+  page.headerCenter = "";
+  page.headerRight = "";
+  page.footerLeft = "";
+  page.footerCenter = "";
+  page.footerRight = "";
+  const headerText = String((_a = raw.headerText) != null ? _a : "").trim();
+  if (headerText) {
+    const align = String((_b = raw.headerAlign) != null ? _b : "left");
+    if (align === "center")
+      page.headerCenter = headerText;
+    else if (align === "right")
+      page.headerRight = headerText;
+    else
+      page.headerLeft = headerText;
+  }
+  const footerText = String((_c = raw.footerText) != null ? _c : "").trim();
+  if (footerText) {
+    const align = String((_d = raw.footerAlign) != null ? _d : "center");
+    if (align === "left")
+      page.footerLeft = footerText;
+    else if (align === "right")
+      page.footerRight = footerText;
+    else
+      page.footerCenter = footerText;
+  }
+  const pn = String((_e = raw.pageNumber) != null ? _e : "none");
+  const fmt = String((_f = raw.pageNumberFormat) != null ? _f : "{page}").replace(/\{page\}/g, "{{page}}").replace(/\{pages\}/g, "{{pages}}");
+  if (pn === "top-center") {
+    page.headerCenter = joinSlot(page.headerCenter, fmt);
+  } else if (pn === "bottom-center") {
+    page.footerCenter = joinSlot(page.footerCenter, fmt);
+  } else if (pn === "bottom-right") {
+    page.footerRight = joinSlot(page.footerRight, fmt);
+  }
+  const anySlot = [
+    page.headerLeft,
+    page.headerCenter,
+    page.headerRight,
+    page.footerLeft,
+    page.footerCenter,
+    page.footerRight
+  ].some((s) => s == null ? void 0 : s.trim());
+  if (!anySlot && pn !== "none") {
+    page.footerCenter = fmt;
+  }
+  stripLegacyPageKeys(page);
+}
+function joinSlot(existing, extra) {
+  const a = (existing != null ? existing : "").trim();
+  const b = extra.trim();
+  if (!a)
+    return b;
+  if (!b || a.includes(b))
+    return a;
+  return `${a}  ${b}`;
+}
+function stripLegacyPageKeys(page) {
+  delete page.pageNumber;
+  delete page.pageNumberFormat;
+  delete page.headerText;
+  delete page.headerAlign;
+  delete page.footerText;
+  delete page.footerAlign;
 }

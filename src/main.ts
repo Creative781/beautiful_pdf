@@ -3,7 +3,12 @@ import { exportPdfToFile } from "./export";
 import { PreviewModal, ProfileSuggestModal } from "./preview";
 import { createDefaultSettings, createSampleProfiles, getActiveProfile } from "./profiles";
 import { BeautifulPdfSettingTab } from "./settings";
-import { layoutsForFile, TableAdjustModal } from "./table-editor";
+import { layoutsForExport, TableAdjustModal, tableAdjustEnabled } from "./table-editor";
+import {
+	imageLayoutsForExport,
+	ImageAdjustModal,
+	imageAdjustEnabled,
+} from "./image-editor";
 import type { BeautifulPdfSettings, ElementStyles, Profile } from "./types";
 import { createDefaultSpecialOptions, ELEMENT_KEYS, SETTINGS_VERSION } from "./types";
 import { PAGE_BREAK_SNIPPET, toLineHeightPercent } from "./util";
@@ -35,11 +40,32 @@ export default class BeautifulPdfPlugin extends Plugin {
 			id: "adjust-tables",
 			name: "Adjust tables for PDF…",
 			checkCallback: (checking) => {
+				if (!tableAdjustEnabled(this)) return false;
 				const file = this.getActiveMarkdownFile();
 				if (!file) return false;
 				if (!checking) {
 					new TableAdjustModal(this.app, this, file, (layouts) => {
-						new PreviewModal(this.app, this, file, layouts).open();
+						new PreviewModal(this.app, this, file, {
+							tableLayouts: layouts,
+						}).open();
+					}).open();
+				}
+				return true;
+			},
+		});
+
+		this.addCommand({
+			id: "adjust-images",
+			name: "Adjust images for PDF…",
+			checkCallback: (checking) => {
+				if (!imageAdjustEnabled(this)) return false;
+				const file = this.getActiveMarkdownFile();
+				if (!file) return false;
+				if (!checking) {
+					new ImageAdjustModal(this.app, this, file, (layouts) => {
+						new PreviewModal(this.app, this, file, {
+							imageLayouts: layouts,
+						}).open();
 					}).open();
 				}
 				return true;
@@ -55,7 +81,8 @@ export default class BeautifulPdfPlugin extends Plugin {
 				if (!checking) {
 					const profile = getActiveProfile(this.settings);
 					void exportPdfToFile(this.app, file, profile, true, {
-						tableLayouts: layoutsForFile(this, file),
+						tableLayouts: layoutsForExport(this, file),
+						imageLayouts: imageLayoutsForExport(this, file),
 					});
 				}
 				return true;
@@ -71,7 +98,8 @@ export default class BeautifulPdfPlugin extends Plugin {
 				if (!checking) {
 					new ProfileSuggestModal(this.app, this, file, (profile) => {
 						void exportPdfToFile(this.app, file, profile, true, {
-							tableLayouts: layoutsForFile(this, file),
+							tableLayouts: layoutsForExport(this, file),
+							imageLayouts: imageLayoutsForExport(this, file),
 						});
 					}).open();
 				}
@@ -103,7 +131,8 @@ export default class BeautifulPdfPlugin extends Plugin {
 						.onClick(() => {
 							const profile = getActiveProfile(this.settings);
 							void exportPdfToFile(this.app, file, profile, true, {
-								tableLayouts: layoutsForFile(this, file),
+								tableLayouts: layoutsForExport(this, file),
+								imageLayouts: imageLayoutsForExport(this, file),
 							});
 						});
 				});
@@ -115,16 +144,34 @@ export default class BeautifulPdfPlugin extends Plugin {
 							void this.openPreview(file);
 						});
 				});
-				menu.addItem((item) => {
-					item
-						.setTitle("Beautiful PDF: Adjust tables…")
-						.setIcon("table")
-						.onClick(() => {
-							new TableAdjustModal(this.app, this, file, (layouts) => {
-								new PreviewModal(this.app, this, file, layouts).open();
-							}).open();
-						});
-				});
+				if (tableAdjustEnabled(this)) {
+					menu.addItem((item) => {
+						item
+							.setTitle("Beautiful PDF: Adjust tables…")
+							.setIcon("table")
+							.onClick(() => {
+								new TableAdjustModal(this.app, this, file, (layouts) => {
+									new PreviewModal(this.app, this, file, {
+										tableLayouts: layouts,
+									}).open();
+								}).open();
+							});
+					});
+				}
+				if (imageAdjustEnabled(this)) {
+					menu.addItem((item) => {
+						item
+							.setTitle("Beautiful PDF: Adjust images…")
+							.setIcon("image")
+							.onClick(() => {
+								new ImageAdjustModal(this.app, this, file, (layouts) => {
+									new PreviewModal(this.app, this, file, {
+										imageLayouts: layouts,
+									}).open();
+								}).open();
+							});
+					});
+				}
 			}),
 		);
 	}
@@ -166,6 +213,7 @@ export default class BeautifulPdfPlugin extends Plugin {
 			activeProfileId: data.activeProfileId ?? defaults.activeProfileId,
 			profiles: profiles.map((p) => mergeProfile(p, fallbackElements)),
 			tableLayouts: data.tableLayouts ?? {},
+			imageLayouts: data.imageLayouts ?? {},
 		};
 		if (!this.settings.profiles.some((p) => p.id === this.settings.activeProfileId)) {
 			this.settings.activeProfileId = this.settings.profiles[0].id;
@@ -194,6 +242,7 @@ function mergeProfile(raw: Profile, fallback: ElementStyles): Profile {
 	const defaultPage = createDefaultSettings().profiles[0].page;
 	const page = { ...defaultPage, ...raw.page };
 	page.lineHeight = toLineHeightPercent(page.lineHeight, defaultPage.lineHeight);
+	migrateLegacyHeaderFooter(raw.page as Record<string, unknown>, page);
 	const special = createDefaultSpecialOptions(raw.special);
 	special.orderedListHeadingLevel1 = clampLevel(special.orderedListHeadingLevel1, 2);
 	special.orderedListHeadingLevel2 = clampLevel(special.orderedListHeadingLevel2, 3);
@@ -210,4 +259,91 @@ function mergeProfile(raw: Profile, fallback: ElementStyles): Profile {
 function clampLevel(n: number, fallback: number): number {
 	if (!Number.isFinite(n)) return fallback;
 	return Math.min(6, Math.max(1, Math.round(n)));
+}
+
+/** Map old page-number + single header/footer fields onto the 3-slot model. */
+function migrateLegacyHeaderFooter(
+	raw: Record<string, unknown> | undefined,
+	page: Profile["page"],
+): void {
+	if (!raw) return;
+	const hasNew =
+		raw.headerLeft != null ||
+		raw.headerCenter != null ||
+		raw.headerRight != null ||
+		raw.footerLeft != null ||
+		raw.footerCenter != null ||
+		raw.footerRight != null;
+	if (hasNew) {
+		stripLegacyPageKeys(page as unknown as Record<string, unknown>);
+		return;
+	}
+
+	page.headerLeft = "";
+	page.headerCenter = "";
+	page.headerRight = "";
+	page.footerLeft = "";
+	page.footerCenter = "";
+	page.footerRight = "";
+
+	const headerText = String(raw.headerText ?? "").trim();
+	if (headerText) {
+		const align = String(raw.headerAlign ?? "left");
+		if (align === "center") page.headerCenter = headerText;
+		else if (align === "right") page.headerRight = headerText;
+		else page.headerLeft = headerText;
+	}
+
+	const footerText = String(raw.footerText ?? "").trim();
+	if (footerText) {
+		const align = String(raw.footerAlign ?? "center");
+		if (align === "left") page.footerLeft = footerText;
+		else if (align === "right") page.footerRight = footerText;
+		else page.footerCenter = footerText;
+	}
+
+	const pn = String(raw.pageNumber ?? "none");
+	const fmt = String(raw.pageNumberFormat ?? "{page}")
+		.replace(/\{page\}/g, "{{page}}")
+		.replace(/\{pages\}/g, "{{pages}}");
+	if (pn === "top-center") {
+		page.headerCenter = joinSlot(page.headerCenter, fmt);
+	} else if (pn === "bottom-center") {
+		page.footerCenter = joinSlot(page.footerCenter, fmt);
+	} else if (pn === "bottom-right") {
+		page.footerRight = joinSlot(page.footerRight, fmt);
+	}
+
+	// Old default was bottom-center {{page}}. If nothing landed in any slot,
+	// keep a page number in the footer center so existing profiles don't go blank.
+	const anySlot = [
+		page.headerLeft,
+		page.headerCenter,
+		page.headerRight,
+		page.footerLeft,
+		page.footerCenter,
+		page.footerRight,
+	].some((s) => s?.trim());
+	if (!anySlot && pn !== "none") {
+		page.footerCenter = fmt;
+	}
+
+	stripLegacyPageKeys(page as unknown as Record<string, unknown>);
+}
+
+function joinSlot(existing: string, extra: string): string {
+	const a = (existing ?? "").trim();
+	const b = extra.trim();
+	if (!a) return b;
+	if (!b || a.includes(b)) return a;
+	return `${a}  ${b}`;
+}
+
+function stripLegacyPageKeys(page: Record<string, unknown>): void {
+	delete page.pageNumber;
+	delete page.pageNumberFormat;
+	delete page.headerText;
+	delete page.headerAlign;
+	delete page.footerText;
+	delete page.footerAlign;
 }

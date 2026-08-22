@@ -7,7 +7,8 @@
 	flex-direction: column;
 }
 
-.beautiful-pdf-table-adjust-modal {
+.beautiful-pdf-table-adjust-modal,
+.beautiful-pdf-image-adjust-modal {
 	width: min(1100px, 96vw);
 	height: min(900px, 94vh);
 	max-width: 96vw;
@@ -17,7 +18,8 @@
 }
 
 .beautiful-pdf-preview-modal .modal-content,
-.beautiful-pdf-table-adjust-modal .modal-content {
+.beautiful-pdf-table-adjust-modal .modal-content,
+.beautiful-pdf-image-adjust-modal .modal-content {
 	display: flex;
 	flex-direction: column;
 	flex: 1;
@@ -43,7 +45,8 @@
 }
 
 .beautiful-pdf-frame-wrap,
-.beautiful-pdf-table-adjust-frame {
+.beautiful-pdf-table-adjust-frame,
+.beautiful-pdf-image-adjust-frame {
 	flex: 1;
 	min-height: 0;
 	border: 1px solid var(--background-modifier-border);
@@ -53,7 +56,8 @@
 }
 
 .beautiful-pdf-frame-wrap iframe,
-.beautiful-pdf-table-adjust-frame iframe {
+.beautiful-pdf-table-adjust-frame iframe,
+.beautiful-pdf-image-adjust-frame iframe {
 	width: 100%;
 	height: 100%;
 	border: 0;
@@ -63,8 +67,38 @@
 	background: #525659;
 }
 
-.beautiful-pdf-table-adjust-frame iframe {
+.beautiful-pdf-table-adjust-frame iframe,
+.beautiful-pdf-image-adjust-frame iframe {
 	background: #e5e7eb;
+}
+
+.beautiful-pdf-img-tool-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 6px;
+	border-radius: 6px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+}
+
+.beautiful-pdf-img-tool-label {
+	font-size: 11px;
+	opacity: 0.7;
+	margin-right: 2px;
+}
+
+.beautiful-pdf-img-width-px {
+	width: 64px;
+	min-height: 24px;
+	margin-left: 4px;
+	padding: 2px 6px;
+	border-radius: 4px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: 12px;
+	text-align: right;
 }
 
 /* ===== Settings ===== */
@@ -76,6 +110,90 @@
 .beautiful-pdf-section > h3 {
 	margin: 0 0 10px;
 	padding-left: 2px;
+}
+
+.beautiful-pdf-profile-title {
+	margin: 4px 0 12px;
+	padding: 0;
+	text-align: left;
+	font-size: 22px;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+	line-height: 1.2;
+	color: var(--text-normal);
+}
+
+.beautiful-pdf-profile-picker {
+	margin-bottom: 22px;
+}
+
+.beautiful-pdf-profile-dependent {
+	position: relative;
+	margin: 0;
+	padding: 12px;
+	border-left: 3px solid var(--interactive-accent);
+	border-radius: 10px;
+	background: var(--background-secondary);
+	box-shadow: inset 0 1px 0 var(--background-modifier-border);
+	box-sizing: border-box;
+}
+
+.beautiful-pdf-profile-dependent-label {
+	margin: 0 0 10px;
+	padding: 0;
+	font-size: 12px;
+	font-weight: 650;
+	letter-spacing: 0.01em;
+	color: var(--text-muted);
+}
+
+.beautiful-pdf-profile-dependent > .setting-item {
+	background: var(--background-primary);
+	border-radius: 8px;
+	margin-bottom: 10px;
+}
+
+.beautiful-pdf-profile-dependent .beautiful-pdf-tabs {
+	margin-top: 2px;
+}
+
+.beautiful-pdf-tabs {
+	display: flex;
+	align-items: stretch;
+	gap: 2px;
+	margin: 4px 0 16px;
+	padding: 0 4px;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.beautiful-pdf-tab {
+	appearance: none;
+	flex: 1;
+	height: 36px;
+	padding: 0 12px;
+	border: none;
+	border-bottom: 2px solid transparent;
+	margin-bottom: -1px;
+	background: transparent;
+	color: var(--text-muted);
+	font-size: 13px;
+	font-weight: 600;
+	letter-spacing: 0.01em;
+	cursor: pointer;
+	box-shadow: none;
+}
+
+.beautiful-pdf-tab:hover {
+	color: var(--text-normal);
+}
+
+.beautiful-pdf-tab.is-active {
+	color: var(--interactive-accent);
+	border-bottom-color: var(--interactive-accent);
+}
+
+.beautiful-pdf-tab-panel > .beautiful-pdf-section {
+	margin-bottom: 0;
 }
 
 .beautiful-pdf-tip {
@@ -209,8 +327,8 @@
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
-	margin-bottom: 4px;
-	padding-left: 2px;
+	margin-bottom: 0;
+	padding-left: 0;
 }
 
 .beautiful-pdf-action-btn {
@@ -316,8 +434,8 @@
 
 .beautiful-pdf-fold-body > .setting-item {
 	min-height: 36px;
-	height: 36px;
-	padding: 0 4px 0 8px;
+	height: auto;
+	padding: 4px 4px 4px 8px;
 	border-radius: 0;
 	background: transparent;
 	border-left: 2px solid var(--background-modifier-border);
@@ -336,6 +454,17 @@
 
 .beautiful-pdf-fold-body > .setting-item .setting-item-info {
 	padding-left: 0;
+}
+
+.beautiful-pdf-fold-body > .setting-item .setting-item-control input[type="text"] {
+	min-width: 140px;
+	width: 160px;
+	max-width: 100%;
+}
+
+.beautiful-pdf-fold-body > .setting-item .setting-item-control .dropdown,
+.beautiful-pdf-fold-body > .setting-item .setting-item-control select {
+	max-width: 160px;
 }
 
 .beautiful-pdf-fold-body > .beautiful-pdf-tip {
@@ -440,7 +569,57 @@
 }
 
 .beautiful-pdf-preview-sample.is-hr {
-	letter-spacing: -2px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 18px;
+	padding: 6px 4px;
+	letter-spacing: normal;
+	color: transparent;
+}
+
+.beautiful-pdf-preview-sample.is-hr .beautiful-pdf-hr-line {
+	width: 100%;
+	height: 0;
+	border: none;
+	box-sizing: border-box;
+	background: transparent;
+}
+
+.beautiful-pdf-preview-sample.is-hr-solid .beautiful-pdf-hr-line {
+	border-top: 1px solid var(--bpf-hr-color, #ccc);
+}
+
+.beautiful-pdf-preview-sample.is-hr-thick .beautiful-pdf-hr-line {
+	border-top: 2.5px solid var(--bpf-hr-color, #ccc);
+}
+
+.beautiful-pdf-preview-sample.is-hr-double .beautiful-pdf-hr-line {
+	border-top: 3px double var(--bpf-hr-color, #ccc);
+}
+
+.beautiful-pdf-preview-sample.is-hr-dashed .beautiful-pdf-hr-line {
+	border-top: 1px dashed var(--bpf-hr-color, #ccc);
+}
+
+.beautiful-pdf-preview-sample.is-hr-fade .beautiful-pdf-hr-line {
+	height: 1px;
+	border: none;
+	background: linear-gradient(
+		to right,
+		transparent 0%,
+		var(--bpf-hr-color, #ccc) 22%,
+		var(--bpf-hr-color, #ccc) 78%,
+		transparent 100%
+	);
+}
+
+.beautiful-pdf-preview-sample.is-hr-short .beautiful-pdf-hr-line {
+	width: 28%;
+	max-width: 72px;
+	height: 2px;
+	border: none;
+	background: var(--bpf-hr-color, #ccc);
 }
 
 .beautiful-pdf-preview-sample.is-link {
@@ -493,7 +672,8 @@
 	position: fixed;
 	left: -2000px;
 	top: 0;
-	width: 794px;
+	/* Width is set inline to the profile content width at print time */
+	min-width: 400px;
 	height: 1123px;
 	opacity: 0;
 	pointer-events: none;

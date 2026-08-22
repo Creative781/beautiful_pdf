@@ -2,9 +2,20 @@ import { App, Modal, Notice, Setting, TFile } from "obsidian";
 import { exportPdfToFile, generatePdf } from "./export";
 import type BeautifulPdfPlugin from "./main";
 import { getActiveProfile } from "./profiles";
-import { layoutsForFile, TableAdjustModal } from "./table-editor";
+import {
+	imageLayoutsForExport,
+	ImageAdjustModal,
+	imageAdjustEnabled,
+} from "./image-editor";
+import type { NoteImageLayouts } from "./image-layout";
+import { layoutsForExport, TableAdjustModal, tableAdjustEnabled } from "./table-editor";
 import type { NoteTableLayouts } from "./table-layout";
 import type { Profile } from "./types";
+
+export interface PreviewLayoutOverrides {
+	tableLayouts?: NoteTableLayouts | null;
+	imageLayouts?: NoteImageLayouts | null;
+}
 
 export class PreviewModal extends Modal {
 	plugin: BeautifulPdfPlugin;
@@ -14,13 +25,13 @@ export class PreviewModal extends Modal {
 	private blobUrl: string | null = null;
 	/** Incremented on each refresh so an older generate cannot overwrite a newer one. */
 	private genToken = 0;
-	private initialLayouts: NoteTableLayouts | null | undefined;
+	private initialLayouts: PreviewLayoutOverrides | undefined;
 
 	constructor(
 		app: App,
 		plugin: BeautifulPdfPlugin,
 		file: TFile,
-		initialLayouts?: NoteTableLayouts | null,
+		initialLayouts?: PreviewLayoutOverrides,
 	) {
 		super(app);
 		this.plugin = plugin;
@@ -51,12 +62,25 @@ export class PreviewModal extends Modal {
 		const refreshBtn = toolbar.createEl("button", { text: "Refresh" });
 		refreshBtn.onclick = () => void this.refresh();
 
-		const adjustBtn = toolbar.createEl("button", { text: "Adjust tables…" });
-		adjustBtn.onclick = () => {
-			new TableAdjustModal(this.app, this.plugin, this.file, (layouts) => {
-				void this.refresh(layouts);
-			}).open();
-		};
+		if (tableAdjustEnabled(this.plugin)) {
+			const adjustBtn = toolbar.createEl("button", { text: "Adjust tables…" });
+			adjustBtn.onclick = () => {
+				new TableAdjustModal(this.app, this.plugin, this.file, (layouts) => {
+					void this.refresh({ tableLayouts: layouts });
+				}).open();
+			};
+		}
+
+		if (imageAdjustEnabled(this.plugin)) {
+			const adjustImgBtn = toolbar.createEl("button", {
+				text: "Adjust images…",
+			});
+			adjustImgBtn.onclick = () => {
+				new ImageAdjustModal(this.app, this.plugin, this.file, (layouts) => {
+					void this.refresh({ imageLayouts: layouts });
+				}).open();
+			};
+		}
 
 		const saveBtn = toolbar.createEl("button", {
 			text: "Save PDF",
@@ -65,7 +89,8 @@ export class PreviewModal extends Modal {
 		saveBtn.onclick = async () => {
 			const profile = getActiveProfile(this.plugin.settings);
 			await exportPdfToFile(this.app, this.file, profile, true, {
-				tableLayouts: layoutsForFile(this.plugin, this.file),
+				tableLayouts: layoutsForExport(this.plugin, this.file),
+				imageLayouts: imageLayoutsForExport(this.plugin, this.file),
 			});
 		};
 
@@ -85,26 +110,37 @@ export class PreviewModal extends Modal {
 	}
 
 	/**
-	 * @param layoutsOverride When provided (including null), use this instead of
-	 *   reading saved settings — required right after Adjust tables.
+	 * @param override When provided, merge with saved layouts for the other kind.
 	 */
-	async refresh(layoutsOverride?: NoteTableLayouts | null): Promise<void> {
+	async refresh(override?: PreviewLayoutOverrides): Promise<void> {
 		const token = ++this.genToken;
 		this.setStatus("Generating PDF…");
 		try {
 			const profile = getActiveProfile(this.plugin.settings);
-			const layouts =
-				arguments.length >= 1
-					? layoutsOverride
-					: layoutsForFile(this.plugin, this.file);
+			const tableLayouts = tableAdjustEnabled(this.plugin)
+				? override && "tableLayouts" in override
+					? override.tableLayouts ?? null
+					: layoutsForExport(this.plugin, this.file)
+				: null;
+			const imageLayouts = imageAdjustEnabled(this.plugin)
+				? override && "imageLayouts" in override
+					? override.imageLayouts ?? null
+					: imageLayoutsForExport(this.plugin, this.file)
+				: null;
 			const { data } = await generatePdf(this.app, this.file, profile, {
-				tableLayouts: layouts,
+				tableLayouts,
+				imageLayouts,
 			});
 			if (token !== this.genToken) return;
 			this.showPdf(data);
-			const layoutNote = layouts?.tables?.length
-				? ` · ${layouts.tables.length} custom table(s)`
-				: "";
+			const notes: string[] = [];
+			if (tableLayouts?.tables?.length) {
+				notes.push(`${tableLayouts.tables.length} custom table(s)`);
+			}
+			if (imageLayouts?.images?.length) {
+				notes.push(`${imageLayouts.images.length} custom image(s)`);
+			}
+			const layoutNote = notes.length ? ` · ${notes.join(" · ")}` : "";
 			this.setStatus(`Profile: ${profile.name}${layoutNote}`);
 		} catch (err) {
 			if (token !== this.genToken) return;

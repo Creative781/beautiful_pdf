@@ -4,6 +4,8 @@ import { getActiveProfile } from "./profiles";
 import { renderNoteHtml } from "./render";
 import {
 	applyColWidthsPct,
+	applyNoteTableLayouts,
+	applyTableBlockAlign,
 	captureNoteTableLayouts,
 	lockTablePixelWidth,
 	markTableTouched,
@@ -14,7 +16,9 @@ import {
 	setTablePixelWidth,
 	tableColumnCount,
 	type NoteTableLayouts,
+	type TableAlign,
 } from "./table-layout";
+import type { PageSettings } from "./types";
 
 type CellKey = string; // `${tableIndex}:${row}:${col}`
 
@@ -61,7 +65,7 @@ export class TableAdjustModal extends Modal {
 
 		const tip = contentEl.createDiv({ cls: "beautiful-pdf-tip" });
 		tip.setText(
-			"Drag across cells to select. Click empty space to clear. Inner column edges redistribute columns; right edge = table width; bottom edge = table height. Then Apply & preview PDF.",
+			"Paper size and margins match the active profile (same as PDF). Drag cells to select; column/row borders resize neighbors; right/bottom edges resize the whole table. Then Apply & preview PDF.",
 		);
 
 		const toolbar = contentEl.createDiv({ cls: "beautiful-pdf-toolbar" });
@@ -74,6 +78,9 @@ export class TableAdjustModal extends Modal {
 
 		mk("Equalize column widths", "", () => this.equalizeSelectedColumns());
 		mk("Equalize row heights", "", () => this.equalizeSelectedRows());
+		mk("Align left", "", () => this.setActiveTableAlign("left"));
+		mk("Align center", "", () => this.setActiveTableAlign("center"));
+		mk("Align right", "", () => this.setActiveTableAlign("right"));
 		mk("Reset active table", "", () => this.resetActiveTable());
 		mk("Clear all sizing", "", () => this.clearAllSizing());
 		mk("Apply & preview PDF", "mod-cta", () => void this.applyAndClose());
@@ -112,43 +119,75 @@ export class TableAdjustModal extends Modal {
 		try {
 			const profile = getActiveProfile(this.plugin.settings);
 			const saved = this.plugin.settings.tableLayouts?.[this.file.path] ?? null;
+			// Bake layouts only after the iframe paper matches PDF page metrics.
 			const rendered = await renderNoteHtml(this.app, this.file, profile, {
-				tableLayouts: saved,
+				tableLayouts: null,
 			});
 
 			const page = profile.page;
-			const widthMm =
-				page.pageSize === "Custom"
-					? page.pageWidthMm
-					: page.pageSize === "Letter" || page.pageSize === "Legal"
-						? 215.9
-						: 210;
-			const contentWidthMm = Math.max(
-				40,
-				widthMm - page.marginLeftMm - page.marginRightMm,
-			);
+			const { pageWidthMm, pageHeightMm, contentWidthMm } = pageMetrics(page);
+			const label = `${page.pageSize === "Custom" ? "Custom" : page.pageSize} ${pageWidthMm}×${pageHeightMm} mm · content ${contentWidthMm.toFixed(1)} mm · margins ${page.marginTopMm}/${page.marginRightMm}/${page.marginBottomMm}/${page.marginLeftMm}`;
 
 			const editorCss = `
 ${rendered.css}
 html, body {
   margin: 0;
   padding: 16px;
-  background: #f3f4f6;
+  background: #e5e7eb;
 }
-.markdown-preview-view {
-  max-width: ${contentWidthMm}mm;
-  margin: 0 auto;
+.bpf-paper-meta {
+  max-width: ${pageWidthMm}mm;
+  margin: 0 auto 10px;
+  font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #4b5563;
+}
+.bpf-paper {
+  width: ${pageWidthMm}mm;
+  min-height: ${pageHeightMm}mm;
+  margin: 0 auto 24px;
   background: #fff;
-  padding: 12mm;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+  box-sizing: border-box;
+  padding: ${page.marginTopMm}mm ${page.marginRightMm}mm ${page.marginBottomMm}mm ${page.marginLeftMm}mm;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.14);
+  /* Must stay visible: edge handles sit on the table border; clipping
+     made the right/bottom hit targets untouchable at full content width. */
+  overflow: visible;
+}
+/* Content column = exact PDF printable width (page − margins). */
+.bpf-paper .markdown-preview-view {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
 }
 .bpf-table-wrap {
   position: relative;
-  display: inline-block;
+  display: block;
+  width: fit-content;
   max-width: 100%;
-  margin: 0 10px 10px 0;
+  margin: 0 0 10px;
   vertical-align: top;
   overflow: visible;
+  /* Keep a little room so handles are not covered by following blocks. */
+  padding-right: 2px;
+  padding-bottom: 2px;
+  box-sizing: border-box;
+}
+.bpf-table-wrap[data-align="left"] {
+  margin-left: 0;
+  margin-right: auto;
+}
+.bpf-table-wrap[data-align="center"] {
+  margin-left: auto;
+  margin-right: auto;
+}
+.bpf-table-wrap[data-align="right"] {
+  margin-left: auto;
+  margin-right: 0;
 }
 table {
   position: relative;
@@ -160,8 +199,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
   outline-offset: -2px;
   background: rgba(37, 99, 235, 0.08) !important;
 }
-/* All handles: position only via inline left/top/width/height (no right/bottom). */
 .bpf-col-handle,
+.bpf-row-handle,
 .bpf-edge-handle-right,
 .bpf-edge-handle-bottom {
   position: absolute;
@@ -170,22 +209,72 @@ td.bpf-cell-selected, th.bpf-cell-selected {
   background: transparent;
   pointer-events: auto;
 }
-.bpf-col-handle {
-  cursor: col-resize;
+.bpf-col-handle,
+.bpf-edge-handle-right { cursor: col-resize; }
+.bpf-row-handle,
+.bpf-edge-handle-bottom { cursor: row-resize; }
+/* Thin guide line inside a wider hit target (not a fat blue bar). */
+.bpf-col-handle::after,
+.bpf-edge-handle-right::after,
+.bpf-row-handle::after,
+.bpf-edge-handle-bottom::after {
+  content: "";
+  position: absolute;
+  background: transparent;
+  border-radius: 0;
+  pointer-events: none;
+  transition: background 0.1s ease, box-shadow 0.1s ease, width 0.1s ease, height 0.1s ease;
 }
-.bpf-edge-handle-right {
-  cursor: ew-resize;
+/* Inner borders: line centered on the grid. */
+.bpf-col-handle::after {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
 }
-.bpf-edge-handle-bottom {
-  cursor: ns-resize;
+.bpf-row-handle::after {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
 }
-.bpf-col-handle:hover,
-.bpf-edge-handle-right:hover,
-.bpf-edge-handle-bottom:hover,
-.bpf-col-handle.is-dragging,
-.bpf-edge-handle-right.is-dragging,
-.bpf-edge-handle-bottom.is-dragging {
-  background: rgba(37, 99, 235, 0.45);
+/* Outer edges: hit target is inset, but the guide sits on the real border. */
+.bpf-edge-handle-right::after {
+  top: 0;
+  bottom: 0;
+  left: auto;
+  right: 0;
+  width: 1px;
+  transform: none;
+}
+.bpf-edge-handle-bottom::after {
+  left: 0;
+  right: 0;
+  top: auto;
+  bottom: 0;
+  height: 1px;
+  transform: none;
+}
+.bpf-col-handle:hover::after,
+.bpf-edge-handle-right:hover::after,
+.bpf-row-handle:hover::after,
+.bpf-edge-handle-bottom:hover::after {
+  background: rgba(37, 99, 235, 0.55);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.12);
+}
+.bpf-col-handle.is-dragging::after,
+.bpf-edge-handle-right.is-dragging::after {
+  width: 2px;
+  background: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.18);
+}
+.bpf-row-handle.is-dragging::after,
+.bpf-edge-handle-bottom.is-dragging::after {
+  height: 2px;
+  background: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.18);
 }
 .bpf-table-hint {
   font-size: 11px;
@@ -194,9 +283,15 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 }
 `;
 
+			const bodyInner =
+				rendered.htmlDocument.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ??
+				`<div class="markdown-preview-view markdown-rendered">${rendered.bodyHtml}</div>`;
+
 			const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8" /><style>${editorCss}</style></head>
-<body>${rendered.htmlDocument.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? rendered.bodyHtml}
+<body>
+<div class="bpf-paper-meta">${label}</div>
+<div class="bpf-paper">${bodyInner}</div>
 </body></html>`;
 
 			if (!this.frameEl) return;
@@ -209,12 +304,23 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 				this.frameEl.onload = () => resolve();
 			});
 
+			const view = this.doc()?.querySelector(
+				".bpf-paper .markdown-preview-view",
+			) as HTMLElement | null;
+			if (view && saved?.tables?.length) {
+				// Use the live content-box width (= PDF content width in CSS px).
+				applyNoteTableLayouts(view, saved, view.clientWidth);
+			}
+
 			this.wireTables();
 			const n = this.doc()?.querySelectorAll("table").length ?? 0;
+			const measured = view?.clientWidth
+				? ` · editor ${Math.round(view.clientWidth)}px`
+				: "";
 			this.setStatus(
 				n === 0
 					? "No tables in this note"
-					: `${n} table${n === 1 ? "" : "s"} · click cells · drag column edges`,
+					: `${n} table${n === 1 ? "" : "s"} · content ${contentWidthMm.toFixed(0)}mm${measured}`,
 			);
 		} catch (err) {
 			console.error(err);
@@ -271,7 +377,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		const onBackgroundDown = (ev: MouseEvent) => {
 			const t = ev.target as HTMLElement | null;
 			if (!t) return;
-			if (t.closest?.("td, th, .bpf-col-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom, button")) {
+			if (t.closest?.("td, th, .bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom, button")) {
 				return;
 			}
 			this.clearSelection();
@@ -295,7 +401,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 				) as HTMLTableCellElement | null;
 				if (!cell || !table.contains(cell)) return;
 				if ((ev.target as HTMLElement).closest?.(
-					".bpf-col-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom",
+					".bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom",
 				)) {
 					return;
 				}
@@ -371,14 +477,35 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 
 	private ensureWrap(table: HTMLTableElement): HTMLElement {
 		const parent = table.parentElement;
-		if (parent?.classList.contains("bpf-table-wrap")) return parent;
+		if (parent?.classList.contains("bpf-table-wrap")) {
+			const align = (table.dataset.bpfAlign as TableAlign | undefined) ?? "left";
+			parent.dataset.align = align;
+			return parent;
+		}
 		const doc = this.doc();
 		if (!doc || !parent) return table;
 		const wrap = doc.createElement("div");
 		wrap.className = "bpf-table-wrap";
+		const align = (table.dataset.bpfAlign as TableAlign | undefined) ?? "left";
+		wrap.dataset.align = align;
 		parent.insertBefore(wrap, table);
 		wrap.appendChild(table);
 		return wrap;
+	}
+
+	private setActiveTableAlign(align: TableAlign): void {
+		const root = this.root();
+		if (!root) return;
+		const tables = Array.from(root.querySelectorAll("table")) as HTMLTableElement[];
+		const table = tables[this.activeTableIndex];
+		if (!table) {
+			new Notice("Select a table first (click any cell).");
+			return;
+		}
+		applyTableBlockAlign(table, align);
+		this.ensureWrap(table);
+		this.syncHandlePositions(table);
+		this.setStatus(`Table ${this.activeTableIndex + 1} · align ${align}`);
 	}
 
 	private clearHandles(table: HTMLTableElement): void {
@@ -387,17 +514,20 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			: table;
 		wrap
 			.querySelectorAll(
-				".bpf-col-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom",
+				".bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom",
 			)
 			.forEach((h) => h.remove());
 	}
 
-	/** Hit-target thickness; handles are centered on the border line. */
+	/** Hit-target thickness; visual line is drawn thin via ::after. */
 	private static readonly EDGE = 10;
 
 	/**
 	 * Place a handle by table geometry relative to wrap.
 	 * Uses left/top only — never CSS right/bottom (those missed the border).
+	 *
+	 * Outer edges are inset (not centered) so the full hit target stays over
+	 * the table. Inner col/row borders stay centered on the grid line.
 	 */
 	private syncHandlePositions(table: HTMLTableElement): void {
 		const wrap = table.parentElement?.classList.contains("bpf-table-wrap")
@@ -427,11 +557,26 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			el.style.bottom = "auto";
 		});
 
+		wrap.querySelectorAll(".bpf-row-handle").forEach((node) => {
+			const el = node as HTMLElement;
+			const rowIndex = Number(el.dataset.row);
+			const row = table.rows[rowIndex];
+			if (!row) return;
+			const rr = row.getBoundingClientRect();
+			const borderY = rr.bottom - wr.top;
+			el.style.left = `${left}px`;
+			el.style.top = `${borderY - edge / 2}px`;
+			el.style.width = `${w}px`;
+			el.style.height = `${edge}px`;
+			el.style.right = "auto";
+			el.style.bottom = "auto";
+		});
+
 		const right = wrap.querySelector(
 			".bpf-edge-handle-right",
 		) as HTMLElement | null;
 		if (right) {
-			right.style.left = `${left + w - edge / 2}px`;
+			right.style.left = `${left + Math.max(0, w - edge)}px`;
 			right.style.top = `${top}px`;
 			right.style.width = `${edge}px`;
 			right.style.height = `${h}px`;
@@ -444,7 +589,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 		) as HTMLElement | null;
 		if (bottom) {
 			bottom.style.left = `${left}px`;
-			bottom.style.top = `${top + h - edge / 2}px`;
+			bottom.style.top = `${top + Math.max(0, h - edge)}px`;
 			bottom.style.width = `${w}px`;
 			bottom.style.height = `${edge}px`;
 			bottom.style.right = "auto";
@@ -520,7 +665,78 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			this.detachFns.push(() => handle.removeEventListener("mousedown", onDown));
 		}
 
-		// Right edge: overall table width (centered on the right border line)
+		// Inner row borders: redistribute adjacent row heights; keep overall height
+		const rowCount = table.rows.length;
+		for (let i = 0; i < rowCount - 1; i++) {
+			const handle = doc.createElement("div");
+			handle.className = "bpf-row-handle";
+			handle.dataset.row = String(i);
+			handle.title = "Drag to resize rows";
+			wrap.appendChild(handle);
+
+			const onDown = (ev: MouseEvent) => {
+				ev.preventDefault();
+				ev.stopPropagation();
+				this.resizing = true;
+				this.dragSelect = null;
+				this.activeTableIndex = tableIndex;
+				handle.classList.add("is-dragging");
+				markTableTouched(table);
+				// Unlock overall height so per-row heights control the table.
+				table.style.height = "";
+				const startHeights = Array.from(table.rows).map((r) =>
+					Math.max(16, Math.round(r.getBoundingClientRect().height)),
+				);
+				for (let ri = 0; ri < startHeights.length; ri++) {
+					const row = table.rows[ri];
+					if (row) row.style.height = `${startHeights[ri]}px`;
+				}
+				const startY = ev.clientY;
+				const above = i;
+				const below = i + 1;
+
+				const onMove = (mv: MouseEvent) => {
+					const dy = mv.clientY - startY;
+					const min = 16;
+					let a = startHeights[above] + dy;
+					let b = startHeights[below] - dy;
+					if (a < min) {
+						b -= min - a;
+						a = min;
+					}
+					if (b < min) {
+						a -= min - b;
+						b = min;
+					}
+					const rowA = table.rows[above];
+					const rowB = table.rows[below];
+					if (rowA) rowA.style.height = `${Math.round(a)}px`;
+					if (rowB) rowB.style.height = `${Math.round(b)}px`;
+					this.syncHandlePositions(table);
+				};
+
+				const onUp = () => {
+					handle.classList.remove("is-dragging");
+					this.resizing = false;
+					doc.removeEventListener("mousemove", onMove);
+					doc.removeEventListener("mouseup", onUp);
+					win?.removeEventListener("mousemove", onMove);
+					win?.removeEventListener("mouseup", onUp);
+					this.setStatus(`Table ${tableIndex + 1} · rows updated`);
+				};
+
+				const win = doc.defaultView;
+				doc.addEventListener("mousemove", onMove);
+				doc.addEventListener("mouseup", onUp);
+				win?.addEventListener("mousemove", onMove);
+				win?.addEventListener("mouseup", onUp);
+			};
+
+			handle.addEventListener("mousedown", onDown);
+			this.detachFns.push(() => handle.removeEventListener("mousedown", onDown));
+		}
+
+		// Right edge: overall table width
 		const rightEdge = doc.createElement("div");
 		rightEdge.className = "bpf-edge-handle-right";
 		rightEdge.title = "Drag to resize table width";
@@ -533,13 +749,15 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 				this.dragSelect = null;
 				this.activeTableIndex = tableIndex;
 				rightEdge.classList.add("is-dragging");
+				// Capture % before clearing px floors; keep ratios while width changes.
 				const pct = measureColWidthsPct(table);
-				applyColWidthsPct(table, pct);
 				markTableTouched(table);
 				const startW = table.getBoundingClientRect().width;
 				const startX = ev.clientX;
 				const parentW = layoutParentWidth(table) || startW * 2;
 				const maxW = Math.max(80, parentW);
+				setTablePixelWidth(table, startW);
+				applyColWidthsPct(table, pct);
 
 				const onMove = (mv: MouseEvent) => {
 					const newW = Math.min(
@@ -547,6 +765,7 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 						Math.max(80, startW + (mv.clientX - startX)),
 					);
 					setTablePixelWidth(table, newW);
+					applyColWidthsPct(table, pct);
 					this.syncHandlePositions(table);
 				};
 
@@ -555,6 +774,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 					this.resizing = false;
 					doc.removeEventListener("mousemove", onMove);
 					doc.removeEventListener("mouseup", onUp);
+					win?.removeEventListener("mousemove", onMove);
+					win?.removeEventListener("mouseup", onUp);
 					this.setStatus(
 						`Table ${tableIndex + 1} · width ${Math.round(
 							table.getBoundingClientRect().width,
@@ -562,8 +783,12 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 					);
 				};
 
+				const win = doc.defaultView;
 				doc.addEventListener("mousemove", onMove);
 				doc.addEventListener("mouseup", onUp);
+				// Keep tracking if the cursor leaves the iframe mid-drag.
+				win?.addEventListener("mousemove", onMove);
+				win?.addEventListener("mouseup", onUp);
 			};
 			rightEdge.addEventListener("mousedown", onDown);
 			this.detachFns.push(() => rightEdge.removeEventListener("mousedown", onDown));
@@ -684,6 +909,8 @@ td.bpf-cell-selected, th.bpf-cell-selected {
 			const row = table.rows[i];
 			if (row) row.style.height = `${Math.round(maxH)}px`;
 		}
+		table.style.height = "";
+		this.syncHandlePositions(table);
 		this.setStatus(`Table ${this.activeTableIndex + 1} · row heights equalized`);
 	}
 
@@ -763,8 +990,39 @@ function layoutParentWidth(table: HTMLTableElement): number {
 		(table.closest(".markdown-preview-view") as HTMLElement | null) ??
 		table.parentElement;
 	if (!parent) return 0;
-	// clientWidth excludes padding — matches the content column the table sits in
-	return parent.clientWidth || parent.getBoundingClientRect().width;
+	const style = getComputedStyle(parent);
+	const padX =
+		(parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+	return (
+		(parent.clientWidth || parent.getBoundingClientRect().width) - padX
+	);
+}
+
+/** Same page geometry used for PDF content width. */
+function pageMetrics(page: PageSettings): {
+	pageWidthMm: number;
+	pageHeightMm: number;
+	contentWidthMm: number;
+} {
+	const pageWidthMm =
+		page.pageSize === "Custom"
+			? page.pageWidthMm
+			: page.pageSize === "Letter" || page.pageSize === "Legal"
+				? 215.9
+				: 210;
+	const pageHeightMm =
+		page.pageSize === "Custom"
+			? page.pageHeightMm
+			: page.pageSize === "Letter"
+				? 279.4
+				: page.pageSize === "Legal"
+					? 355.6
+					: 297;
+	const contentWidthMm = Math.max(
+		40,
+		pageWidthMm - page.marginLeftMm - page.marginRightMm,
+	);
+	return { pageWidthMm, pageHeightMm, contentWidthMm };
 }
 
 /** Apply saved layouts for a path (helper for export/preview). */
@@ -773,4 +1031,18 @@ export function layoutsForFile(
 	file: TFile,
 ): NoteTableLayouts | null {
 	return plugin.settings.tableLayouts?.[file.path] ?? null;
+}
+
+/** Whether the active profile allows the Adjust tables step. Default on. */
+export function tableAdjustEnabled(plugin: BeautifulPdfPlugin): boolean {
+	return getActiveProfile(plugin.settings).special.enableTableAdjust !== false;
+}
+
+/** Saved layouts, or null when the feature is turned off. */
+export function layoutsForExport(
+	plugin: BeautifulPdfPlugin,
+	file: TFile,
+): NoteTableLayouts | null {
+	if (!tableAdjustEnabled(plugin)) return null;
+	return layoutsForFile(plugin, file);
 }

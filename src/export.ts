@@ -1,6 +1,11 @@
 import { Notice, type App, type TFile } from "obsidian";
-import { headerFooterTemplates } from "./css";
+import {
+	headerFooterContext,
+	headerFooterTemplates,
+	type HeaderFooterContext,
+} from "./placeholders";
 import { renderNoteHtml } from "./render";
+import type { NoteImageLayouts } from "./image-layout";
 import type { NoteTableLayouts } from "./table-layout";
 import type { Profile } from "./types";
 
@@ -68,6 +73,7 @@ export interface PdfResult {
 
 export interface GeneratePdfOptions {
 	tableLayouts?: NoteTableLayouts | null;
+	imageLayouts?: NoteImageLayouts | null;
 }
 
 /** Render note and produce PDF bytes (same path for preview + export). */
@@ -79,8 +85,15 @@ export async function generatePdf(
 ): Promise<PdfResult> {
 	const rendered = await renderNoteHtml(app, file, profile, {
 		tableLayouts: options.tableLayouts,
+		imageLayouts: options.imageLayouts,
 	});
-	const data = await printHtmlToPdf(rendered, profile, options.tableLayouts);
+	const hfCtx = headerFooterContext(app, file, rendered.title);
+	const data = await printHtmlToPdf(
+		rendered,
+		profile,
+		options.tableLayouts,
+		hfCtx,
+	);
 	return { data, title: rendered.title };
 }
 
@@ -127,9 +140,11 @@ export async function exportPdfToFile(
 async function printHtmlToPdf(
 	rendered: { htmlDocument: string; bodyHtml: string; css: string; title: string },
 	profile: Profile,
-	tableLayouts?: NoteTableLayouts | null,
+	tableLayouts: NoteTableLayouts | null | undefined,
+	hfCtx: HeaderFooterContext,
 ): Promise<Uint8Array> {
-	const webview = createHiddenWebview();
+	const pageW = contentWidthPx(profile);
+	const webview = createHiddenWebview(pageW);
 	const ready = waitForDomReady(webview);
 	document.body.appendChild(webview);
 	webview.src = "about:blank";
@@ -163,15 +178,17 @@ async function printHtmlToPdf(
 			}))();
 		`);
 
-		// Re-apply table layouts in the live print DOM. Serialized HTML/CSS alone is
-		// unreliable in Electron printToPDF (colgroup/% width often ignored).
+		// Re-apply with absolute px against the page content width (not webview guesswork).
 		if (tableLayouts?.tables?.length) {
-			await webview.executeJavaScript(buildApplyTableLayoutsScript(tableLayouts));
+			const result = await webview.executeJavaScript(
+				buildApplyTableLayoutsScript(tableLayouts, pageW),
+			);
+			console.debug("[Beautiful PDF] table layout apply", result);
 		}
 
-		await sleep(150);
+		await sleep(200);
 
-		const hf = headerFooterTemplates(profile);
+		const hf = headerFooterTemplates(profile, hfCtx);
 		const page = profile.page;
 		let pageSize: string | { width: number; height: number } = page.pageSize;
 		if (page.pageSize === "Custom") {
@@ -207,40 +224,57 @@ async function printHtmlToPdf(
 
 /**
  * Script run inside the print webview to force column/table geometry with
- * pixel widths (resolved against the content column) right before printToPDF.
+ * pixel widths (resolved against the PDF content column) right before printToPDF.
  */
-function buildApplyTableLayoutsScript(layouts: NoteTableLayouts): string {
+function buildApplyTableLayoutsScript(
+	layouts: NoteTableLayouts,
+	contentWidthPx: number,
+): string {
 	return `(() => {
 		const layouts = ${JSON.stringify(layouts)};
+		const parentW = ${Math.max(40, Math.round(contentWidthPx))};
 		const root = document.querySelector(".markdown-preview-view") || document.body;
-		document.documentElement.style.setProperty("width", "100%", "important");
-		document.body.style.setProperty("width", "100%", "important");
+		document.documentElement.style.setProperty("width", parentW + "px", "important");
+		document.documentElement.style.setProperty("max-width", parentW + "px", "important");
+		document.body.style.setProperty("width", parentW + "px", "important");
+		document.body.style.setProperty("max-width", parentW + "px", "important");
+		document.body.style.setProperty("margin", "0", "important");
+		document.body.style.setProperty("padding", "0", "important");
 		if (root && root.style) {
-			root.style.setProperty("width", "100%", "important");
-			root.style.setProperty("max-width", "none", "important");
+			root.style.setProperty("width", parentW + "px", "important");
+			root.style.setProperty("max-width", parentW + "px", "important");
+			root.style.setProperty("box-sizing", "border-box", "important");
 		}
-		const parentW = Math.max(
-			1,
-			(root && root.clientWidth) || document.body.clientWidth || 794,
-		);
 		const tables = Array.from(document.querySelectorAll("table"));
 		let applied = 0;
 		for (const layout of layouts.tables || []) {
 			const table = tables[layout.index];
 			if (!table) continue;
 			table.style.setProperty("table-layout", "fixed", "important");
-			table.style.setProperty("max-width", "100%", "important");
 			table.style.setProperty("box-sizing", "border-box", "important");
 
-			let tablePx = 0;
+			let tablePx = parentW;
 			if (layout.widthPct != null && layout.widthPct > 0) {
 				tablePx = Math.max(40, (Number(layout.widthPct) / 100) * parentW);
-				table.style.setProperty("width", tablePx + "px", "important");
 			} else {
 				tablePx = table.getBoundingClientRect().width || parentW;
-				table.style.setProperty("width", tablePx + "px", "important");
 			}
+			tablePx = Math.round(tablePx);
+			table.style.setProperty("width", tablePx + "px", "important");
+			table.style.setProperty("min-width", tablePx + "px", "important");
+			table.style.setProperty("max-width", tablePx + "px", "important");
 
+			const align = layout.align === "center" || layout.align === "right" ? layout.align : "left";
+			if (align === "center") {
+				table.style.setProperty("margin-left", "auto", "important");
+				table.style.setProperty("margin-right", "auto", "important");
+			} else if (align === "right") {
+				table.style.setProperty("margin-left", "auto", "important");
+				table.style.setProperty("margin-right", "0", "important");
+			} else if (layout.align === "left") {
+				table.style.setProperty("margin-left", "0", "important");
+				table.style.setProperty("margin-right", "auto", "important");
+			}
 			const colsPct = layout.colWidthsPct || [];
 			const n = colsPct.length;
 			if (n > 0) {
@@ -254,22 +288,34 @@ function buildApplyTableLayoutsScript(layouts: NoteTableLayouts): string {
 					group.appendChild(document.createElement("col"));
 				}
 				const sum = colsPct.reduce((a, b) => a + (Number(b) || 0), 0) || 1;
+				const colPx = [];
 				for (let i = 0; i < n; i++) {
 					const pct = ((Number(colsPct[i]) || 0) / sum) * 100;
-					const px = (pct / 100) * tablePx;
-					const col = group.children[i];
-					col.style.setProperty("width", px + "px", "important");
-					col.setAttribute("width", String(Math.round(px)));
+					colPx.push(Math.max(8, Math.round((pct / 100) * tablePx)));
 				}
-				const row0 = table.rows[0];
-				if (row0) {
-					for (let i = 0; i < n; i++) {
-						const cell = row0.cells[i];
-						if (!cell) continue;
-						const pct = ((Number(colsPct[i]) || 0) / sum) * 100;
-						const px = (pct / 100) * tablePx;
-						cell.style.setProperty("width", px + "px", "important");
-						cell.setAttribute("width", String(Math.round(px)));
+				for (let i = 0; i < n; i++) {
+					const col = group.children[i];
+					const w = colPx[i] + "px";
+					col.style.setProperty("width", w, "important");
+					col.style.setProperty("min-width", w, "important");
+					col.style.setProperty("max-width", w, "important");
+					col.setAttribute("width", String(colPx[i]));
+				}
+				for (const row of Array.from(table.rows)) {
+					let colAt = 0;
+					for (const cell of Array.from(row.cells)) {
+						const span = cell.colSpan || 1;
+						let spanPx = 0;
+						for (let k = 0; k < span && colAt + k < n; k++) spanPx += colPx[colAt + k];
+						if (spanPx > 0) {
+							const w = spanPx + "px";
+							cell.style.setProperty("width", w, "important");
+							cell.style.setProperty("min-width", w, "important");
+							cell.style.setProperty("max-width", w, "important");
+							cell.style.setProperty("box-sizing", "border-box", "important");
+							cell.setAttribute("width", String(spanPx));
+						}
+						colAt += span;
 					}
 				}
 			}
@@ -294,13 +340,28 @@ function buildApplyTableLayoutsScript(layouts: NoteTableLayouts): string {
 	})()`;
 }
 
-function createHiddenWebview(): PrintWebview {
-	return createEl("webview" as keyof HTMLElementTagNameMap, {
+function contentWidthPx(profile: Profile): number {
+	const page = profile.page;
+	const widthMm =
+		page.pageSize === "Custom"
+			? page.pageWidthMm
+			: page.pageSize === "Letter" || page.pageSize === "Legal"
+				? 215.9
+				: 210;
+	const contentMm = Math.max(40, widthMm - page.marginLeftMm - page.marginRightMm);
+	return Math.round((contentMm / 25.4) * 96);
+}
+
+function createHiddenWebview(contentWidthPx: number): PrintWebview {
+	const w = Math.max(400, Math.round(contentWidthPx));
+	const el = createEl("webview" as keyof HTMLElementTagNameMap, {
 		cls: "beautiful-pdf-print-webview",
 		attr: {
 			webpreferences: "nodeIntegration=yes",
+			style: `width:${w}px;height:1123px;`,
 		},
 	}) as unknown as PrintWebview;
+	return el;
 }
 
 function waitForDomReady(webview: PrintWebview): Promise<void> {

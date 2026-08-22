@@ -117,6 +117,7 @@ function baseElements(): ElementStyles {
 			marginTop: 16,
 			marginBottom: 16,
 			color: "#cccccc",
+			hrPreset: "solid",
 		}),
 		table: el({
 			fontSize: 10,
@@ -184,13 +185,19 @@ function basePage(overrides: Partial<PageSettings> = {}): PageSettings {
 		marginLeftMm: 18,
 		marginRightMm: 18,
 		lineHeight: 170,
-		pageNumber: "bottom-center",
-		pageNumberFormat: "{page}",
 		useFilenameAsTitle: true,
-		headerText: "",
-		headerAlign: "left",
-		footerText: "",
-		footerAlign: "center",
+		headerLeft: "",
+		headerCenter: "",
+		headerRight: "",
+		footerLeft: "",
+		footerCenter: "{{page}}",
+		footerRight: "",
+		headerLeftStyle: "",
+		headerCenterStyle: "",
+		headerRightStyle: "",
+		footerLeftStyle: "",
+		footerCenterStyle: "",
+		footerRightStyle: "",
 		printBackground: true,
 		...overrides,
 	};
@@ -242,11 +249,8 @@ export function createReportProfile(): Profile {
 			marginLeftMm: 24,
 			marginRightMm: 24,
 			lineHeight: 165,
-			pageNumber: "bottom-center",
-			pageNumberFormat: "- {page} -",
 			useFilenameAsTitle: true,
-			headerText: "",
-			footerText: "",
+			footerCenter: "- {{page}} -",
 		}),
 		elements,
 		special: createDefaultSpecialOptions(),
@@ -286,6 +290,7 @@ export function createLifeProfile(): Profile {
 	elements.callout.framePreset = "soft-fill";
 	elements.link.color = "#c2410c";
 	elements.hr.color = "#e7e5e4";
+	elements.hr.hrPreset = "fade";
 	elements.embed.backgroundColor = "#fafaf9";
 	elements.embed.framePreset = "soft-fill";
 	return {
@@ -297,11 +302,9 @@ export function createLifeProfile(): Profile {
 			marginLeftMm: 14,
 			marginRightMm: 14,
 			lineHeight: 200,
-			pageNumber: "bottom-right",
-			pageNumberFormat: "{page}",
 			useFilenameAsTitle: true,
-			headerText: "",
-			footerAlign: "right",
+			footerCenter: "",
+			footerRight: "{{page}}",
 		}),
 		elements,
 		special: createDefaultSpecialOptions(),
@@ -347,6 +350,7 @@ export function createPlanProfile(): Profile {
 	elements.callout.framePreset = "outline-card";
 	elements.link.color = "#0284c7";
 	elements.hr.color = "#bae6fd";
+	elements.hr.hrPreset = "short";
 	elements.embed.backgroundColor = "#f8fafc";
 	elements.embed.framePreset = "outline-card";
 	elements.footnote.fontSize = 8;
@@ -359,12 +363,10 @@ export function createPlanProfile(): Profile {
 			marginLeftMm: 16,
 			marginRightMm: 16,
 			lineHeight: 150,
-			pageNumber: "top-center",
-			pageNumberFormat: "{page} / {pages}",
 			useFilenameAsTitle: true,
-			headerText: "Proposal",
-			headerAlign: "right",
-			footerText: "",
+			headerCenter: "{{page}} / {{pages}}",
+			headerRight: "Proposal",
+			footerCenter: "",
 		}),
 		elements,
 		special: createDefaultSpecialOptions({ styleOrderedListsAsHeadings: true }),
@@ -382,6 +384,7 @@ export function createDefaultSettings(): BeautifulPdfSettings {
 		activeProfileId: profiles[0].id,
 		profiles,
 		tableLayouts: {},
+		imageLayouts: {},
 	};
 }
 

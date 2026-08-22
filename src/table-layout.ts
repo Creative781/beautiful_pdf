@@ -1,4 +1,6 @@
 /** Per-table column/row sizing saved from the optional layout step. */
+export type TableAlign = "left" | "center" | "right";
+
 export interface TableLayout {
 	/** 0-based index among `table` elements in document order. */
 	index: number;
@@ -13,6 +15,8 @@ export interface TableLayout {
 	widthPct?: number;
 	/** Optional overall table height in CSS pixels (bottom-edge resize). */
 	heightPx?: number;
+	/** Block alignment of the table on the page (not cell text align). */
+	align?: TableAlign;
 }
 
 export interface NoteTableLayouts {
@@ -70,6 +74,64 @@ export function markTableTouched(table: HTMLTableElement): void {
 	table.classList.add("bpf-table-sized");
 }
 
+/** Block-level left / center / right for the table (not cell contents). */
+export function applyTableBlockAlign(
+	table: HTMLTableElement,
+	align: TableAlign,
+): void {
+	markTableTouched(table);
+	const a: TableAlign =
+		align === "center" || align === "right" ? align : "left";
+	table.dataset.bpfAlign = a;
+	if (a === "center") {
+		table.style.marginLeft = "auto";
+		table.style.marginRight = "auto";
+	} else if (a === "right") {
+		table.style.marginLeft = "auto";
+		table.style.marginRight = "0";
+	} else {
+		table.style.marginLeft = "0";
+		table.style.marginRight = "auto";
+	}
+	const wrap = table.parentElement;
+	if (wrap?.classList.contains("bpf-table-wrap")) {
+		wrap.dataset.align = a;
+	}
+}
+
+export function readTableBlockAlign(table: HTMLTableElement): TableAlign {
+	const raw = table.dataset.bpfAlign;
+	if (raw === "center" || raw === "right") return raw;
+	return "left";
+}
+
+/**
+ * Drop absolute px floors on cols/cells left by applyNoteTableLayouts / PDF bake.
+ * Those min/max widths block right-edge shrink even when table.style.width falls.
+ */
+export function clearColumnPixelConstraints(table: HTMLTableElement): void {
+	const group = table.querySelector("colgroup");
+	if (group) {
+		for (const col of Array.from(group.children) as HTMLTableColElement[]) {
+			col.style.minWidth = "";
+			col.style.maxWidth = "";
+			col.removeAttribute("width");
+			// Keep % widths; convert leftover px to clear so % can be reapplied.
+			if (col.style.width && !col.style.width.endsWith("%")) {
+				col.style.width = "";
+			}
+		}
+	}
+	for (const row of Array.from(table.rows)) {
+		for (const cell of Array.from(row.cells)) {
+			cell.style.width = "";
+			cell.style.minWidth = "";
+			cell.style.maxWidth = "";
+			cell.removeAttribute("width");
+		}
+	}
+}
+
 /**
  * Keep the table's current pixel width (do not stretch to 100%).
  * Needed before `table-layout: fixed` so column drags only redistribute.
@@ -77,16 +139,28 @@ export function markTableTouched(table: HTMLTableElement): void {
 export function lockTablePixelWidth(table: HTMLTableElement): void {
 	markTableTouched(table);
 	const existing = table.style.width;
-	if (existing && existing !== "100%" && existing !== "auto") return;
+	if (existing && existing !== "100%" && existing !== "auto") {
+		// Still clear stale px floors so subsequent shrinks can take effect.
+		clearColumnPixelConstraints(table);
+		return;
+	}
 	const w = Math.round(table.getBoundingClientRect().width);
-	table.style.width = `${Math.max(40, w)}px`;
-	table.style.maxWidth = "none";
+	const px = Math.max(40, w);
+	table.style.width = `${px}px`;
+	table.style.minWidth = `${px}px`;
+	table.style.maxWidth = `${px}px`;
+	clearColumnPixelConstraints(table);
 }
 
 export function setTablePixelWidth(table: HTMLTableElement, widthPx: number): void {
 	markTableTouched(table);
-	table.style.width = `${Math.max(40, Math.round(widthPx))}px`;
-	table.style.maxWidth = "none";
+	const px = Math.max(40, Math.round(widthPx));
+	// Pin exact width — leftover min-width from saved layouts used to ignore shrinks.
+	table.style.width = `${px}px`;
+	table.style.minWidth = `${px}px`;
+	table.style.maxWidth = `${px}px`;
+	table.style.tableLayout = "fixed";
+	clearColumnPixelConstraints(table);
 }
 
 export function setTablePixelHeight(table: HTMLTableElement, heightPx: number): void {
@@ -101,11 +175,15 @@ function layoutParent(table: HTMLTableElement): HTMLElement | null {
 	);
 }
 
-/** Table width as % of the note content column. */
+/** Table width as % of the note content column (padding excluded). */
 export function measureTableWidthPct(table: HTMLTableElement): number | undefined {
 	const parent = layoutParent(table);
 	if (!parent) return undefined;
-	const pw = parent.clientWidth || parent.getBoundingClientRect().width;
+	const style = getComputedStyle(parent);
+	const padX =
+		(parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+	const pw =
+		(parent.clientWidth || parent.getBoundingClientRect().width) - padX;
 	if (pw <= 1) return undefined;
 	const tw = table.getBoundingClientRect().width;
 	return Math.min(100, Math.max(5, (tw / pw) * 100));
@@ -160,6 +238,7 @@ export function applyColWidthsPct(
 	colWidthsPct: number[],
 ): void {
 	lockTablePixelWidth(table);
+	clearColumnPixelConstraints(table);
 	const n = Math.max(tableColumnCount(table), colWidthsPct.length);
 	const pct = normalizePercents(
 		colWidthsPct.length === n
@@ -169,6 +248,8 @@ export function applyColWidthsPct(
 	const cols = ensureColgroup(table, n);
 	for (let i = 0; i < n; i++) {
 		cols[i].style.width = `${pct[i]}%`;
+		cols[i].style.minWidth = "";
+		cols[i].style.maxWidth = "";
 	}
 }
 
@@ -196,9 +277,9 @@ export function applyRowHeightsPx(
  * Remove editor-only chrome so capture/PDF never see handles or wrappers.
  */
 export function stripEditorChrome(root: HTMLElement): void {
-	root
+		root
 		.querySelectorAll(
-			".bpf-col-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom, .bpf-table-hint",
+			".bpf-col-handle, .bpf-row-handle, .bpf-edge-handle-right, .bpf-edge-handle-bottom, .bpf-table-hint",
 		)
 		.forEach((el) => el.remove());
 	root.querySelectorAll(".bpf-cell-selected").forEach((el) => {
@@ -215,45 +296,50 @@ export function stripEditorChrome(root: HTMLElement): void {
 }
 
 /**
- * Print-time CSS that forces saved layouts. Inline col/tr styles can be lost or
- * ignored by print engines; this is the authoritative path for PDF output.
+ * Print/PDF CSS using absolute mm widths. Percentage widths often resolve to
+ * "auto" during Electron printToPDF when the containing block is indefinite.
  */
 export function tableLayoutsToCss(
 	layouts: NoteTableLayouts | null | undefined,
+	contentWidthMm: number,
 ): string {
 	if (!layouts?.tables?.length) return "";
-	const lines: string[] = [];
+	const pageMm = Math.max(40, contentWidthMm);
+	const lines: string[] = [
+		`html, body, .markdown-preview-view { width:${pageMm}mm !important; max-width:${pageMm}mm !important; margin:0 !important; box-sizing:border-box !important; }`,
+	];
 	for (const layout of layouts.tables) {
 		const t = `table[data-bpf-i="${layout.index}"]`;
-		const widthRule =
+		const tableMm =
 			layout.widthPct != null && layout.widthPct > 0
-				? `width:${Number(layout.widthPct.toFixed(4))}% !important;`
-				: "";
+				? (Math.min(100, Math.max(5, layout.widthPct)) / 100) * pageMm
+				: pageMm;
 		const heightRule =
 			layout.heightPx != null && layout.heightPx > 0
-				? `height:${Math.round(layout.heightPx)}px !important;`
+				? `height:${pxToMm(layout.heightPx)}mm !important;`
 				: "";
 		lines.push(
-			`${t}{table-layout:fixed !important;max-width:100% !important;${widthRule}${heightRule}}`,
+			`${t}{table-layout:fixed !important;width:${fmtMm(tableMm)}mm !important;min-width:${fmtMm(tableMm)}mm !important;max-width:${fmtMm(tableMm)}mm !important;${heightRule}${alignRule(layout.align)}}`,
 		);
 		const pct = normalizePercents(layout.colWidthsPct || []);
 		pct.forEach((p, i) => {
-			const w = `${Number(p.toFixed(4))}%`;
+			const colMm = (p / 100) * tableMm;
+			const w = `${fmtMm(colMm)}mm`;
 			lines.push(
-				`${t} > colgroup > col:nth-child(${i + 1}){width:${w} !important;}`,
+				`${t} > colgroup > col:nth-child(${i + 1}){width:${w} !important;min-width:${w} !important;max-width:${w} !important;}`,
 			);
-			// Cell fallbacks when colgroup is dropped by the serializer/engine
 			lines.push(
-				`${t} > thead > tr > *:nth-child(${i + 1}),` +
-					`${t} > tbody > tr:first-child > *:nth-child(${i + 1}),` +
-					`${t} > tr:first-child > *:nth-child(${i + 1}){width:${w} !important;}`,
+				`${t} th:nth-child(${i + 1}), ${t} td:nth-child(${i + 1}),` +
+					`${t} > thead > tr > *:nth-child(${i + 1}),` +
+					`${t} > tbody > tr > *:nth-child(${i + 1}),` +
+					`${t} > tr > *:nth-child(${i + 1}){width:${w} !important;min-width:${w} !important;max-width:${w} !important;box-sizing:border-box !important;}`,
 			);
 		});
 		if (layout.rowHeightsPx?.length) {
 			layout.rowHeightsPx.forEach((h, i) => {
 				if (h == null || h <= 0) return;
 				lines.push(
-					`${t} tr[data-bpf-r="${i}"]{height:${Math.round(h)}px !important;}`,
+					`${t} tr[data-bpf-r="${i}"], ${t} tr:nth-child(${i + 1}){height:${pxToMm(h)}mm !important;}`,
 				);
 			});
 		}
@@ -261,18 +347,62 @@ export function tableLayoutsToCss(
 	return lines.join("\n");
 }
 
-/** Apply saved layouts onto rendered note HTML (by table index). */
+function pxToMm(px: number): string {
+	return fmtMm((px / 96) * 25.4);
+}
+
+function fmtMm(mm: number): string {
+	return Number(mm.toFixed(3)).toString();
+}
+
+function alignRule(align: TableAlign | undefined): string {
+	if (align === "center") {
+		return "margin-left:auto !important;margin-right:auto !important;";
+	}
+	if (align === "right") {
+		return "margin-left:auto !important;margin-right:0 !important;";
+	}
+	if (align === "left") {
+		return "margin-left:0 !important;margin-right:auto !important;";
+	}
+	return "";
+}
+
+/**
+ * Apply saved layouts onto rendered note HTML (by table index).
+ * Uses absolute px against `contentWidthPx` so serialized HTML survives printToPDF.
+ */
 export function applyNoteTableLayouts(
 	root: HTMLElement,
 	layouts: NoteTableLayouts | null | undefined,
+	contentWidthPx?: number,
 ): void {
 	if (!layouts?.tables?.length) return;
+	const parentW = Math.max(
+		40,
+		contentWidthPx ??
+			(root.clientWidth || root.getBoundingClientRect().width || 794),
+	);
 	const tables = Array.from(root.querySelectorAll("table"));
 	for (const layout of layouts.tables) {
 		const table = tables[layout.index] as HTMLTableElement | undefined;
 		if (!table) continue;
 		table.classList.add("bpf-table-sized");
 		table.setAttribute("data-bpf-i", String(layout.index));
+		table.style.tableLayout = "fixed";
+		table.style.boxSizing = "border-box";
+
+		const tablePx =
+			layout.widthPct != null && layout.widthPct > 0
+				? Math.max(
+						40,
+						(Math.min(100, Math.max(5, layout.widthPct)) / 100) * parentW,
+					)
+				: Math.max(40, table.getBoundingClientRect().width || parentW);
+		const tablePxR = Math.round(tablePx);
+		table.style.width = `${tablePxR}px`;
+		table.style.minWidth = `${tablePxR}px`;
+		table.style.maxWidth = `${tablePxR}px`;
 
 		if (layout.colWidthsPct?.length) {
 			const n = Math.max(tableColumnCount(table), layout.colWidthsPct.length);
@@ -282,17 +412,33 @@ export function applyNoteTableLayouts(
 					: padOrTrim(layout.colWidthsPct, n, 100 / Math.max(1, n)),
 			);
 			const cols = ensureColgroup(table, n);
+			const colPx = pct.map((p) => Math.max(8, Math.round((p / 100) * tablePx)));
 			for (let i = 0; i < n; i++) {
-				cols[i].style.width = `${pct[i]}%`;
-				cols[i].setAttribute("width", `${pct[i]}%`);
+				const w = `${colPx[i]}px`;
+				cols[i].style.width = w;
+				cols[i].style.minWidth = w;
+				cols[i].style.maxWidth = w;
+				cols[i].setAttribute("width", String(colPx[i]));
 			}
-		}
-
-		if (layout.widthPct != null && layout.widthPct > 0) {
-			const w = `${Math.min(100, Math.max(5, layout.widthPct))}%`;
-			table.style.width = w;
-			table.style.maxWidth = "100%";
-			table.style.tableLayout = "fixed";
+			for (const row of Array.from(table.rows)) {
+				let colAt = 0;
+				for (const cell of Array.from(row.cells)) {
+					const span = cell.colSpan || 1;
+					let spanPx = 0;
+					for (let k = 0; k < span && colAt + k < n; k++) {
+						spanPx += colPx[colAt + k];
+					}
+					if (spanPx > 0) {
+						const w = `${spanPx}px`;
+						cell.style.width = w;
+						cell.style.minWidth = w;
+						cell.style.maxWidth = w;
+						cell.style.boxSizing = "border-box";
+						cell.setAttribute("width", String(spanPx));
+					}
+					colAt += span;
+				}
+			}
 		}
 
 		if (layout.rowHeightsPx?.length) {
@@ -301,7 +447,7 @@ export function applyNoteTableLayouts(
 				rows[i].setAttribute("data-bpf-r", String(i));
 				const h = layout.rowHeightsPx[i];
 				if (h != null && h > 0) {
-					rows[i].style.height = `${h}px`;
+					rows[i].style.height = `${Math.round(h)}px`;
 				}
 			}
 		}
@@ -309,12 +455,17 @@ export function applyNoteTableLayouts(
 		if (layout.heightPx != null && layout.heightPx > 0) {
 			table.style.height = `${Math.round(layout.heightPx)}px`;
 		}
+
+		if (layout.align) {
+			applyTableBlockAlign(table, layout.align);
+		}
 	}
 }
 
 function tableHasCustomSizing(table: HTMLTableElement): boolean {
 	if (table.dataset.bpfTouched === "1") return true;
 	if (table.classList.contains("bpf-table-sized")) return true;
+	if (table.dataset.bpfAlign && table.dataset.bpfAlign !== "left") return true;
 	if (table.style.width || table.style.height) return true;
 	if (table.querySelector("colgroup")) return true;
 	if (Array.from(table.rows).some((r) => !!r.style.height)) return true;
@@ -341,6 +492,7 @@ export function captureNoteTableLayouts(root: HTMLElement): NoteTableLayouts {
 			return Math.round(row.getBoundingClientRect().height);
 		});
 		const widthPct = measureTableWidthPct(table);
+		const align = readTableBlockAlign(table);
 		snapshots.push({
 			index,
 			colWidthsPct,
@@ -351,6 +503,7 @@ export function captureNoteTableLayouts(root: HTMLElement): NoteTableLayouts {
 			widthPct,
 			heightPx:
 				Number.isFinite(heightPx) && heightPx > 0 ? heightPx : undefined,
+			align,
 		});
 	});
 	stripEditorChrome(root);
@@ -370,8 +523,17 @@ export function resetTableSizing(table: HTMLTableElement): void {
 	table.removeAttribute("data-bpf-i");
 	table.style.width = "";
 	table.style.height = "";
+	table.style.minWidth = "";
 	table.style.maxWidth = "";
 	table.style.tableLayout = "";
+	table.style.marginLeft = "";
+	table.style.marginRight = "";
+	delete table.dataset.bpfAlign;
+	const wrap = table.parentElement;
+	if (wrap?.classList.contains("bpf-table-wrap")) {
+		wrap.dataset.align = "left";
+	}
+	clearColumnPixelConstraints(table);
 	const group = table.querySelector("colgroup");
 	group?.remove();
 	for (const row of Array.from(table.rows)) {

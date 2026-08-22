@@ -1,13 +1,20 @@
 import type { NoteTableLayouts } from "./table-layout";
+import type { NoteImageLayouts } from "./image-layout";
 
 export type { NoteTableLayouts, TableLayout } from "./table-layout";
+export type { NoteImageLayouts, ImageLayout, ImageAlign } from "./image-layout";
 
 export type TextAlign = "left" | "center" | "right" | "justify";
-export type HfAlign = "left" | "center" | "right";
 export type FontWeight = "normal" | "bold" | "300" | "500" | "600" | "700";
 export type PageSize = "A4" | "Letter" | "Legal" | "Custom";
-export type PageNumberPos = "none" | "bottom-center" | "bottom-right" | "top-center";
 export type FramePreset = "accent-bar" | "outline-card" | "soft-fill";
+export type HrPreset =
+	| "solid"
+	| "thick"
+	| "double"
+	| "dashed"
+	| "fade"
+	| "short";
 
 export interface ElementStyle {
 	fontFamily: string;
@@ -22,6 +29,8 @@ export interface ElementStyle {
 	 * accent-bar = current left bar; outline-card = full border; soft-fill = fill only.
 	 */
 	framePreset?: FramePreset;
+	/** Horizontal rule line style (Markdown `---`). */
+	hrPreset?: HrPreset;
 	marginTop: number; // pt
 	marginBottom: number; // pt
 	/** Line height as percent (100 = 100%). */
@@ -63,6 +72,18 @@ export const FRAME_PRESET_OPTIONS: {
 	{ id: "soft-fill", label: "Soft fill (no border)" },
 ];
 
+export const HR_PRESET_OPTIONS: {
+	id: HrPreset;
+	label: string;
+}[] = [
+	{ id: "solid", label: "Thin solid" },
+	{ id: "thick", label: "Thick solid" },
+	{ id: "double", label: "Double line" },
+	{ id: "dashed", label: "Dashed" },
+	{ id: "fade", label: "Soft fade" },
+	{ id: "short", label: "Short center bar" },
+];
+
 export const ELEMENTS_WITH_FRAME: ElementKey[] = [
 	"blockquote",
 	"callout",
@@ -79,13 +100,21 @@ export interface PageSettings {
 	marginRightMm: number;
 	/** Body line height as percent (100 = 100%). */
 	lineHeight: number;
-	pageNumber: PageNumberPos;
-	pageNumberFormat: string; // e.g. "{page} / {pages}"
 	useFilenameAsTitle: boolean;
-	headerText: string;
-	headerAlign: HfAlign;
-	footerText: string;
-	footerAlign: HfAlign;
+	/** Header band: left / center / right. Empty = none. */
+	headerLeft: string;
+	headerCenter: string;
+	headerRight: string;
+	footerLeft: string;
+	footerCenter: string;
+	footerRight: string;
+	/** Markdown element style key for each slot. Empty = default header/footer look. */
+	headerLeftStyle: string;
+	headerCenterStyle: string;
+	headerRightStyle: string;
+	footerLeftStyle: string;
+	footerCenterStyle: string;
+	footerRightStyle: string;
 	printBackground: boolean;
 }
 
@@ -102,6 +131,14 @@ export interface SpecialOptions {
 	orderedListHeadingLevel2: number;
 	/** Heading style for third-level nested `ol ol ol > li`. */
 	orderedListHeadingLevel3: number;
+	/** Honor `%%pdf-pagebreak%%` markers in PDF output. Default on. */
+	enablePageBreaks: boolean;
+	/** Show Adjust tables UI and apply saved table layouts. Default on. */
+	enableTableAdjust: boolean;
+	/** Show Adjust images UI and apply saved image layouts. Default on. */
+	enableImageAdjust: boolean;
+	/** Expand {{page}}, {{title}}, … in header/footer. Default on. */
+	enablePlaceholders: boolean;
 }
 
 export interface Profile {
@@ -120,6 +157,10 @@ export function createDefaultSpecialOptions(
 		orderedListHeadingLevel1: 2,
 		orderedListHeadingLevel2: 3,
 		orderedListHeadingLevel3: 4,
+		enablePageBreaks: true,
+		enableTableAdjust: true,
+		enableImageAdjust: true,
+		enablePlaceholders: true,
 		...overrides,
 	};
 }
@@ -134,6 +175,11 @@ export interface BeautifulPdfSettings {
 	 * Keyed by vault-relative file path.
 	 */
 	tableLayouts?: Record<string, NoteTableLayouts>;
+	/**
+	 * Optional per-note image size/alignment from the Adjust images step.
+	 * Keyed by vault-relative file path.
+	 */
+	imageLayouts?: Record<string, NoteImageLayouts>;
 }
 export const ELEMENT_LABELS: Record<ElementKey, string> = {
 	h1: "Heading # (H1)",

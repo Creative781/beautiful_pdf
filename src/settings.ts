@@ -8,29 +8,38 @@ import {
 } from "./profiles";
 import {
 	ELEMENT_GROUPS,
+	ELEMENT_KEYS,
 	ELEMENT_LABELS,
 	ELEMENT_PREVIEW_TEXT,
 	ELEMENTS_WITH_BACKGROUND,
 	ELEMENTS_WITH_FRAME,
 	FRAME_PRESET_OPTIONS,
+	HR_PRESET_OPTIONS,
 	type ElementKey,
 	type ElementStyle,
 	type FontWeight,
 	type FramePreset,
-	type HfAlign,
-	type PageNumberPos,
+	type HrPreset,
 	type PageSize,
 	type TextAlign,
 } from "./types";
 import { applyFramePreview } from "./frame";
+import { applyHrPreview } from "./hr";
 import { lineHeightCss, toLineHeightPercent } from "./util";
 
+type SettingsTabId = "page" | "markdown" | "addons";
+
 type UiState = {
+	settingsTab: SettingsTabId;
 	specialOpen: boolean;
+	pageBreakOpen: boolean;
+	tableAdjustOpen: boolean;
+	imageAdjustOpen: boolean;
 	pageSizeOpen: boolean;
 	marginsOpen: boolean;
-	pageNumberOpen: boolean;
-	headerFooterOpen: boolean;
+	headerOpen: boolean;
+	footerOpen: boolean;
+	placeholdersOpen: boolean;
 	morePageOpen: boolean;
 	groupOpen: Record<string, boolean>;
 	elementOpen: Partial<Record<ElementKey, boolean>>;
@@ -39,11 +48,16 @@ type UiState = {
 export class BeautifulPdfSettingTab extends PluginSettingTab {
 	plugin: BeautifulPdfPlugin;
 	private ui: UiState = {
+		settingsTab: "page",
 		specialOpen: false,
+		pageBreakOpen: false,
+		tableAdjustOpen: false,
+		imageAdjustOpen: false,
 		pageSizeOpen: false,
 		marginsOpen: false,
-		pageNumberOpen: false,
-		headerFooterOpen: false,
+		headerOpen: false,
+		footerOpen: false,
+		placeholdersOpen: false,
 		morePageOpen: false,
 		groupOpen: {},
 		elementOpen: {},
@@ -102,24 +116,19 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 
 	private renderAll(containerEl: HTMLElement): void {
 		this.renderProfiles(containerEl);
-		this.renderPageSection(containerEl);
-		this.renderSpecialSection(containerEl);
-		this.renderElementsSection(containerEl);
-
-		const tip = containerEl.createDiv({ cls: "beautiful-pdf-tip" });
-		tip.createEl("strong", { text: "Page break: " });
-		tip.appendText("Insert ");
-		tip.createEl("code", { text: "%%pdf-pagebreak%%" });
-		tip.appendText(" in a note, or use the command ");
-		tip.createEl("code", { text: "Insert page break" });
-		tip.appendText(".");
+		this.renderProfileDependent(containerEl);
 	}
 
 	/* ---------- Profiles ---------- */
 
 	private renderProfiles(containerEl: HTMLElement): void {
-		const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-		new Setting(section).setName("Document profiles").setHeading();
+		const section = containerEl.createDiv({
+			cls: "beautiful-pdf-section beautiful-pdf-profile-picker",
+		});
+		section.createEl("h2", {
+			cls: "beautiful-pdf-profile-title",
+			text: "Document Profile",
+		});
 
 		const chips = section.createDiv({ cls: "beautiful-pdf-profile-chips" });
 		for (const p of this.plugin.settings.profiles) {
@@ -178,22 +187,67 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			await this.plugin.saveSettings();
 			this.display();
 		});
+	}
 
-		section.createEl("hr", { cls: "beautiful-pdf-divider" });
-
+	/** Page / Markdown / Add-ons belong to the selected profile. */
+	private renderProfileDependent(containerEl: HTMLElement): void {
 		const profile = getActiveProfile(this.plugin.settings);
-		new Setting(section)
+		const wrap = containerEl.createDiv({ cls: "beautiful-pdf-profile-dependent" });
+		wrap.createDiv({
+			cls: "beautiful-pdf-profile-dependent-label",
+			text: `Settings for “${profile.name}”`,
+		});
+
+		new Setting(wrap)
 			.setName("Profile name")
 			.addText((text) =>
 				text.setValue(profile.name).onChange((v) => {
-				void (async () => {
-					profile.name = v.trim() || profile.name;
-					await this.plugin.saveSettings();
-					const active = chips.querySelector(".is-active");
-					if (active) active.setText(profile.name);
-				})();
-			}),
+					void (async () => {
+						profile.name = v.trim() || profile.name;
+						await this.plugin.saveSettings();
+						const active = containerEl.querySelector(
+							".beautiful-pdf-profile-chip.is-active",
+						);
+						if (active) active.setText(profile.name);
+						const label = wrap.querySelector(
+							".beautiful-pdf-profile-dependent-label",
+						);
+						if (label) label.setText(`Settings for “${profile.name}”`);
+					})();
+				}),
 			);
+
+		this.renderSettingsTabs(wrap);
+	}
+
+	/* ---------- Tabs ---------- */
+
+	private renderSettingsTabs(containerEl: HTMLElement): void {
+		const tabs = containerEl.createDiv({ cls: "beautiful-pdf-tabs" });
+		const items: { id: SettingsTabId; label: string }[] = [
+			{ id: "page", label: "Page" },
+			{ id: "markdown", label: "Markdown" },
+			{ id: "addons", label: "Add-ons" },
+		];
+		for (const item of items) {
+			const btn = tabs.createEl("button", {
+				cls:
+					"beautiful-pdf-tab" +
+					(this.ui.settingsTab === item.id ? " is-active" : ""),
+				text: item.label,
+				attr: { type: "button" },
+			});
+			btn.onclick = () => {
+				if (this.ui.settingsTab === item.id) return;
+				this.ui.settingsTab = item.id;
+				this.display();
+			};
+		}
+
+		const panel = containerEl.createDiv({ cls: "beautiful-pdf-tab-panel" });
+		if (this.ui.settingsTab === "page") this.renderPageSection(panel);
+		else if (this.ui.settingsTab === "markdown") this.renderElementsSection(panel);
+		else this.renderSpecialSection(panel);
 	}
 
 	/* ---------- Page ---------- */
@@ -203,7 +257,6 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		page.lineHeight = toLineHeightPercent(page.lineHeight);
 
 		const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-		new Setting(section).setName("Page").setHeading();
 
 		const sizeSummary =
 			page.pageSize === "Custom"
@@ -269,127 +322,75 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			},
 		);
 
-		const pnLabel =
-			(
-				{
-					none: "None",
-					"bottom-center": "Bottom center",
-					"bottom-right": "Bottom right",
-					"top-center": "Top center",
-				} as Record<PageNumberPos, string>
-			)[page.pageNumber] ?? page.pageNumber;
-
 		this.collapsible(
 			section,
-			"Page numbers",
-			pnLabel,
-			this.ui.pageNumberOpen,
+			"Header",
+			this.hfSlotSummary(page.headerLeft, page.headerCenter, page.headerRight),
+			this.ui.headerOpen,
 			(o) => {
-				this.ui.pageNumberOpen = o;
+				this.ui.headerOpen = o;
 			},
 			(inner) => {
-				new Setting(inner)
-					.setName("Position")
-					.addDropdown((dd) => {
-						const opts: Record<PageNumberPos, string> = {
-							none: "None",
-							"bottom-center": "Bottom center",
-							"bottom-right": "Bottom right",
-							"top-center": "Top center",
-						};
-						(Object.keys(opts) as PageNumberPos[]).forEach((k) => {
-							dd.addOption(k, opts[k]);
-						});
-						dd.setValue(page.pageNumber).onChange((v) => {
-							void (async () => {
-								page.pageNumber = v as PageNumberPos;
-								await this.plugin.saveSettings();
-								this.display();
-							})();
-						});
-					});
-				new Setting(inner)
-					.setName("Format")
-					.addText((t) =>
-						t
-							.setPlaceholder("{page} / {pages}")
-							.setValue(page.pageNumberFormat)
-							.onChange((v) => {
-								void (async () => {
-									page.pageNumberFormat = v;
-									await this.plugin.saveSettings();
-								})();
-							}),
-					);
+				this.addHfSlot(inner, "Left", page.headerLeft, page.headerLeftStyle, async (text, style) => {
+					page.headerLeft = text;
+					page.headerLeftStyle = style;
+				});
+				this.addHfSlot(inner, "Center", page.headerCenter, page.headerCenterStyle, async (text, style) => {
+					page.headerCenter = text;
+					page.headerCenterStyle = style;
+				});
+				this.addHfSlot(inner, "Right", page.headerRight, page.headerRightStyle, async (text, style) => {
+					page.headerRight = text;
+					page.headerRightStyle = style;
+				});
+				this.addPlaceholderTip(inner);
 			},
 		);
 
-		const hfSummary =
-			[
-				page.headerText ? `Header (${page.headerAlign})` : null,
-				page.footerText ? `Footer (${page.footerAlign})` : null,
-			]
-				.filter(Boolean)
-				.join(" · ") || "None";
-
 		this.collapsible(
 			section,
-			"Header · footer",
-			hfSummary,
-			this.ui.headerFooterOpen,
+			"Footer",
+			this.hfSlotSummary(page.footerLeft, page.footerCenter, page.footerRight),
+			this.ui.footerOpen,
 			(o) => {
-				this.ui.headerFooterOpen = o;
+				this.ui.footerOpen = o;
 			},
 			(inner) => {
-				new Setting(inner)
-					.setName("Header text")
-					.addText((t) =>
-						t.setValue(page.headerText).onChange((v) => {
-							void (async () => {
-								page.headerText = v;
-								await this.plugin.saveSettings();
-							})();
-						}),
-					);
-				new Setting(inner)
-					.setName("Header align")
-					.addDropdown((dd) => {
-						this.addHfAlignOptions(dd);
-						dd.setValue(page.headerAlign ?? "left").onChange((v) => {
-							void (async () => {
-								page.headerAlign = v as HfAlign;
-								await this.plugin.saveSettings();
-							})();
-						});
-					});
-				new Setting(inner)
-					.setName("Footer text")
-					.addText((t) =>
-						t.setValue(page.footerText).onChange((v) => {
-							void (async () => {
-								page.footerText = v;
-								await this.plugin.saveSettings();
-							})();
-						}),
-					);
-				new Setting(inner)
-					.setName("Footer align")
-					.addDropdown((dd) => {
-						this.addHfAlignOptions(dd);
-						dd.setValue(page.footerAlign ?? "center").onChange((v) => {
-							void (async () => {
-								page.footerAlign = v as HfAlign;
-								await this.plugin.saveSettings();
-							})();
-						});
-					});
+				this.addHfSlot(inner, "Left", page.footerLeft, page.footerLeftStyle, async (text, style) => {
+					page.footerLeft = text;
+					page.footerLeftStyle = style;
+				});
+				this.addHfSlot(inner, "Center", page.footerCenter, page.footerCenterStyle, async (text, style) => {
+					page.footerCenter = text;
+					page.footerCenterStyle = style;
+				});
+				this.addHfSlot(inner, "Right", page.footerRight, page.footerRightStyle, async (text, style) => {
+					page.footerRight = text;
+					page.footerRightStyle = style;
+				});
+				this.addPlaceholderTip(inner);
 			},
 		);
+
+		const lhBox = section.createDiv({ cls: "beautiful-pdf-row-box" });
+		new Setting(lhBox)
+			.setName("Default line height (%)")
+			.addText((t) =>
+				t.setValue(String(page.lineHeight)).onChange((v) => {
+					void (async () => {
+						const n = parseFloat(v);
+						if (!Number.isNaN(n) && n > 0) {
+							page.lineHeight = toLineHeightPercent(n);
+							await this.plugin.saveSettings();
+						}
+					})();
+				}),
+			);
 
 		this.collapsible(
 			section,
 			"More",
-			`Line height ${page.lineHeight}% · background ${page.printBackground ? "on" : "off"}`,
+			`Filename title ${page.useFilenameAsTitle ? "on" : "off"} · background ${page.printBackground ? "on" : "off"}`,
 			this.ui.morePageOpen,
 			(o) => {
 				this.ui.morePageOpen = o;
@@ -402,19 +403,6 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 							void (async () => {
 								page.useFilenameAsTitle = v;
 								await this.plugin.saveSettings();
-							})();
-						}),
-					);
-				new Setting(inner)
-					.setName("Default line height (%)")
-					.addText((t) =>
-						t.setValue(String(page.lineHeight)).onChange((v) => {
-							void (async () => {
-								const n = parseFloat(v);
-								if (!Number.isNaN(n) && n > 0) {
-									page.lineHeight = toLineHeightPercent(n);
-									await this.plugin.saveSettings();
-								}
 							})();
 						}),
 					);
@@ -432,12 +420,81 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 		);
 	}
 
-	private addHfAlignOptions(dd: {
-		addOption: (v: string, d: string) => unknown;
-	}): void {
-		dd.addOption("left", "Left");
-		dd.addOption("center", "Center");
-		dd.addOption("right", "Right");
+	private hfSlotSummary(left: string, center: string, right: string): string {
+		const cells = [left, center, right].map((s) => (s ?? "").trim());
+		if (!cells.some(Boolean)) return "None";
+		return cells
+			.map((s) => {
+				if (!s) return "—";
+				return s.length > 16 ? `${s.slice(0, 16)}…` : s;
+			})
+			.join(" · ");
+	}
+
+	private addHfSlot(
+		parent: HTMLElement,
+		name: string,
+		value: string,
+		styleKey: string,
+		onChange: (text: string, style: string) => Promise<void>,
+	): void {
+		let text = value ?? "";
+		let style = styleKey ?? "";
+		const setting = new Setting(parent).setName(name);
+		setting.addText((t) =>
+			t
+				.setPlaceholder("None")
+				.setValue(text)
+				.onChange((v) => {
+					text = v;
+					void (async () => {
+						await onChange(text, style);
+						await this.plugin.saveSettings();
+					})();
+				}),
+		);
+		setting.addDropdown((dd) => {
+			dd.addOption("", "Default");
+			for (const key of ELEMENT_KEYS) {
+				dd.addOption(key, ELEMENT_LABELS[key]);
+			}
+			dd.setValue(style).onChange((v) => {
+				style = v;
+				void (async () => {
+					await onChange(text, style);
+					await this.plugin.saveSettings();
+				})();
+			});
+		});
+	}
+
+	private addPlaceholderTip(parent: HTMLElement): void {
+		const tip = parent.createDiv({ cls: "beautiful-pdf-tip" });
+		tip.appendText("Use ordinary text and/or placeholders. ");
+		tip.createEl("code", { text: "{{page}}" });
+		tip.appendText(" current page · ");
+		tip.createEl("code", { text: "{{pages}}" });
+		tip.appendText(" total pages · ");
+		tip.createEl("code", { text: "{{date}}" });
+		tip.appendText(" today · ");
+		tip.createEl("code", { text: "{{title}}" });
+		tip.appendText(" · ");
+		tip.createEl("code", { text: "{{filename}}" });
+		tip.appendText(" · ");
+		tip.createEl("code", { text: "{{folder}}" });
+		tip.appendText(" · ");
+		tip.createEl("code", { text: "{{vault}}" });
+		tip.appendText(" · ");
+		tip.createEl("code", { text: "{{ctime}}" });
+		tip.appendText(" created · ");
+		tip.createEl("code", { text: "{{mtime}}" });
+		tip.appendText(" last edited. A note property becomes ");
+		tip.createEl("code", { text: "{{name}}" });
+		tip.appendText(" (for example ");
+		tip.createEl("code", { text: "{{author}}" });
+		tip.appendText(" from Properties). Missing values stay blank. Example: ");
+		tip.createEl("code", { text: "{{title}}  {{page}}/{{pages}}" });
+		tip.appendText(".");
 	}
 
 	/* ---------- Extras (PDF-only) ---------- */
@@ -450,7 +507,6 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			: "Off";
 
 		const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-		new Setting(section).setName("Extras").setHeading();
 
 		this.collapsible(
 			section,
@@ -504,14 +560,138 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 				addLevel("Deeper nested level", "orderedListHeadingLevel3");
 			},
 		);
+
+		this.collapsible(
+			section,
+			"Page break",
+			special.enablePageBreaks ? "On" : "Off",
+			this.ui.pageBreakOpen,
+			(open) => {
+				this.ui.pageBreakOpen = open;
+			},
+			(body) => {
+				new Setting(body)
+					.setName("Enable")
+					.setDesc("Turn %%pdf-pagebreak%% markers into PDF page breaks")
+					.addToggle((tg) =>
+						tg.setValue(special.enablePageBreaks).onChange((v) => {
+							void (async () => {
+								special.enablePageBreaks = v;
+								await this.plugin.saveSettings();
+								this.display();
+							})();
+						}),
+					);
+
+				if (!special.enablePageBreaks) return;
+
+				const tip = body.createDiv({ cls: "beautiful-pdf-tip" });
+				tip.appendText("Insert ");
+				tip.createEl("code", { text: "%%pdf-pagebreak%%" });
+				tip.appendText(" in a note, or use the command ");
+				tip.createEl("code", { text: "Insert page break" });
+				tip.appendText(".");
+			},
+		);
+
+		this.collapsible(
+			section,
+			"Adjust tables",
+			special.enableTableAdjust ? "On" : "Off",
+			this.ui.tableAdjustOpen,
+			(open) => {
+				this.ui.tableAdjustOpen = open;
+			},
+			(body) => {
+				new Setting(body)
+					.setName("Enable")
+					.setDesc("Optional step to resize table columns and rows before PDF")
+					.addToggle((tg) =>
+						tg.setValue(special.enableTableAdjust).onChange((v) => {
+							void (async () => {
+								special.enableTableAdjust = v;
+								await this.plugin.saveSettings();
+								this.display();
+							})();
+						}),
+					);
+
+				if (!special.enableTableAdjust) return;
+
+				const tip = body.createDiv({ cls: "beautiful-pdf-tip" });
+				tip.appendText(
+					"PDF-only. Use Adjust tables… in preview, the command palette, or the file menu to drag column and row sizes. Saved layouts apply on preview and export.",
+				);
+			},
+		);
+
+		this.collapsible(
+			section,
+			"Adjust images",
+			special.enableImageAdjust ? "On" : "Off",
+			this.ui.imageAdjustOpen,
+			(open) => {
+				this.ui.imageAdjustOpen = open;
+			},
+			(body) => {
+				new Setting(body)
+					.setName("Enable")
+					.setDesc("Optional step to set image size and alignment before PDF")
+					.addToggle((tg) =>
+						tg.setValue(special.enableImageAdjust).onChange((v) => {
+							void (async () => {
+								special.enableImageAdjust = v;
+								await this.plugin.saveSettings();
+								this.display();
+							})();
+						}),
+					);
+
+				if (!special.enableImageAdjust) return;
+
+				const tip = body.createDiv({ cls: "beautiful-pdf-tip" });
+				tip.appendText(
+					"PDF-only. Use Adjust images… to pick size (S/M/L/Full) and block alignment (left/center/right). Text wrap around images is not supported in print. Saved layouts apply on preview and export.",
+				);
+			},
+		);
+
+		this.collapsible(
+			section,
+			"Header & footer placeholders",
+			special.enablePlaceholders ? "On" : "Off",
+			this.ui.placeholdersOpen,
+			(open) => {
+				this.ui.placeholdersOpen = open;
+			},
+			(body) => {
+				new Setting(body)
+					.setName("Enable")
+					.setDesc("Replace {{page}}, {{title}}, and other placeholders in header/footer")
+					.addToggle((tg) =>
+						tg.setValue(special.enablePlaceholders).onChange((v) => {
+							void (async () => {
+								special.enablePlaceholders = v;
+								await this.plugin.saveSettings();
+								this.display();
+							})();
+						}),
+					);
+
+				if (!special.enablePlaceholders) return;
+
+				const tip = body.createDiv({ cls: "beautiful-pdf-tip" });
+				tip.appendText(
+					"When on, placeholders in Page → Header / Footer become real values in the PDF (page numbers, note title, Properties fields, file dates, and so on). When off, the {{braces}} print as written.",
+				);
+			},
+		);
 	}
 
 	/* ---------- Markdown elements ---------- */
 
 	private renderElementsSection(containerEl: HTMLElement): void {
 		const section = containerEl.createDiv({ cls: "beautiful-pdf-section" });
-		new Setting(section).setName("Markdown elements").setHeading();
-
 		const elements = getActiveProfile(this.plugin.settings).elements;
 
 		for (const group of ELEMENT_GROUPS) {
@@ -582,6 +762,60 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 					})();
 			});
 				});
+		}
+
+		if (key === "hr") {
+			new Setting(editors)
+				.setName("Line style")
+				.addDropdown((dd) => {
+					for (const opt of HR_PRESET_OPTIONS) {
+						dd.addOption(opt.id, opt.label);
+					}
+					dd.setValue(style.hrPreset ?? "solid").onChange((v) => {
+						void (async () => {
+							style.hrPreset = v as HrPreset;
+							await this.plugin.saveSettings();
+							refreshPreview();
+						})();
+					});
+				});
+
+			this.addColorSetting(editors, "Line color", style.color, async (v) => {
+				style.color = v;
+				await this.plugin.saveSettings();
+				refreshPreview();
+			});
+
+			new Setting(editors)
+				.setName("Margin top (pt)")
+				.addText((t) =>
+					t.setValue(String(style.marginTop)).onChange((v) => {
+						void (async () => {
+							const n = parseFloat(v);
+							if (!Number.isNaN(n)) {
+								style.marginTop = n;
+								await this.plugin.saveSettings();
+								refreshPreview();
+							}
+						})();
+					}),
+				);
+
+			new Setting(editors)
+				.setName("Margin bottom (pt)")
+				.addText((t) =>
+					t.setValue(String(style.marginBottom)).onChange((v) => {
+						void (async () => {
+							const n = parseFloat(v);
+							if (!Number.isNaN(n)) {
+								style.marginBottom = n;
+								await this.plugin.saveSettings();
+								refreshPreview();
+							}
+						})();
+					}),
+				);
+			return;
 		}
 
 		const fontSetting = new Setting(editors).setName("Font");
@@ -793,7 +1027,8 @@ export class BeautifulPdfSettingTab extends PluginSettingTab {
 			dynamic.fontFamily = style.fontFamily;
 		}
 		if (key === "hr") {
-			sample.addClass("is-hr");
+			applyHrPreview(sample, style);
+			return;
 		}
 		if (key === "link") {
 			sample.addClass("is-link");
